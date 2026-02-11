@@ -1,0 +1,23 @@
+# Cactus Flasher - Local Development
+# Usage: docker compose up --build
+
+services:
+  cactus-flasher:
+    build: .
+    container_name: cactus-flasher-dev
+    ports:
+      - "8000:8000"
+    volumes:
+      # Hot-reload: mount source code
+      - ./app:/app/app
+      - ./static:/app/static
+      # Persist config and runtime data
+      - ./config:/app/config
+      - ./uploads:/app/uploads
+      - ./builds:/app/builds
+    environment:
+      - SECRET_KEY=dev-secret-key-not-for-production
+      - DDNS_HOST=esp32gb.ddns.net
+    # Override CMD to enable hot reload
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    restart: unless-stopped

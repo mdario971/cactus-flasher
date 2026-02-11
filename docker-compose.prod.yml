@@ -1,0 +1,25 @@
+# Cactus Flasher - Production (Optional)
+# Usage: docker compose -f docker-compose.prod.yml up -d
+#
+# NOTE: The recommended VPS deployment is systemd + venv
+# (see cactus-flasher.service). Use this only if you prefer
+# Docker consistency over simplicity.
+
+services:
+  cactus-flasher:
+    build: .
+    container_name: cactus-flasher
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - ./config:/app/config
+      - ./uploads:/app/uploads
+      - ./builds:/app/builds
+    env_file:
+      - .env
+    restart: always
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

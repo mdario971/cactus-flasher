@@ -1,0 +1,21 @@
+# Cactus Flasher - Python Dependencies
+
+# Web framework
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+
+# Authentication
+python-jose[cryptography]>=3.3.0
+bcrypt>=4.1.0
+
+# File handling
+python-multipart>=0.0.6
+
+# Configuration
+pyyaml>=6.0.1
+
+# HTTP client
+aiohttp>=3.9.0
+
+# WebSocket support (included in uvicorn[standard])
+websockets>=12.0

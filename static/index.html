@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cactus Flasher - ESP32 Web Flasher</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        cactus: {
+                            50: '#f0fdf4',
+                            100: '#dcfce7',
+                            200: '#bbf7d0',
+                            300: '#86efac',
+                            400: '#4ade80',
+                            500: '#22c55e',
+                            600: '#16a34a',
+                            700: '#15803d',
+                            800: '#166534',
+                            900: '#14532d',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="dark bg-gray-900 text-gray-100 min-h-screen">
+    <!-- Login Modal -->
+    <div id="login-modal" class="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
+        <div class="bg-gray-800 rounded-xl p-8 w-full max-w-md shadow-2xl border border-gray-700">
+            <div class="text-center mb-6">
+                <h1 class="text-3xl font-bold text-cactus-400">Cactus Flasher</h1>
+                <p class="text-gray-400 mt-2">ESP32 Web Flasher</p>
+            </div>
+            <form id="login-form" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-1">Username</label>
+                    <input type="text" id="login-username"
+                           class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-cactus-500 focus:border-transparent"
+                           placeholder="admin" required>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-1">Password</label>
+                    <input type="password" id="login-password"
+                           class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-cactus-500 focus:border-transparent"
+                           placeholder="********" required>
+                </div>
+                <div id="login-error" class="text-red-400 text-sm hidden"></div>
+                <button type="submit"
+                        class="w-full py-2 bg-cactus-600 hover:bg-cactus-700 rounded-lg font-medium transition-colors">
+                    Sign In
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Main Application -->
+    <div id="app" class="hidden">
+        <!-- Header -->
+        <header class="bg-gray-800 border-b border-gray-700 sticky top-0 z-40">
+            <div class="container mx-auto px-4 py-3 flex items-center justify-between">
+                <div class="flex items-center space-x-3">
+                    <span class="text-2xl">🌵</span>
+                    <h1 class="text-xl font-bold text-cactus-400">Cactus Flasher</h1>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <span id="current-user" class="text-gray-400"></span>
+                    <button id="logout-btn" class="px-3 py-1 text-sm bg-gray-700 hover:bg-gray-600 rounded transition-colors">
+                        Logout
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="container mx-auto px-4 py-6">
+            <!-- Tabs -->
+            <div class="flex space-x-1 mb-6 bg-gray-800 p-1 rounded-lg w-fit">
+                <button data-tab="boards" class="tab-btn active px-4 py-2 rounded-md transition-colors">
+                    Boards
+                </button>
+                <button data-tab="upload" class="tab-btn px-4 py-2 rounded-md transition-colors">
+                    Upload & Flash
+                </button>
+                <button data-tab="builds" class="tab-btn px-4 py-2 rounded-md transition-colors">
+                    Builds
+                </button>
+                <button data-tab="settings" class="tab-btn px-4 py-2 rounded-md transition-colors">
+                    Settings
+                </button>
+            </div>
+
+            <!-- Boards Tab -->
+            <div id="tab-boards" class="tab-content">
+                <div class="flex items-center justify-between mb-4">
+                    <h2 class="text-xl font-semibold">Registered Boards</h2>
+                    <div class="space-x-2">
+                        <button id="scan-boards-btn" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors">
+                            Scan All
+                        </button>
+                        <button id="discover-boards-btn" class="px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg transition-colors">
+                            Discover
+                        </button>
+                        <button id="add-board-btn" class="px-4 py-2 bg-cactus-600 hover:bg-cactus-700 rounded-lg transition-colors">
+                            Add Board
+                        </button>
+                    </div>
+                </div>
+                <div id="boards-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                    <!-- Board cards will be inserted here -->
+                </div>
+
+                <!-- Port Reference -->
+                <div class="mt-6 bg-gray-800/50 rounded-lg p-4 border border-gray-700/50">
+                    <h4 class="text-sm font-medium text-gray-400 mb-2">Port Reference (Board ID = XX)</h4>
+                    <div class="flex flex-wrap gap-4 text-sm">
+                        <span><span class="port-badge web">WEB</span> <span class="text-gray-400">80XX</span> - Webserver</span>
+                        <span><span class="port-badge ota">OTA</span> <span class="text-gray-400">82XX</span> - Firmware updates</span>
+                        <span><span class="port-badge api">API</span> <span class="text-gray-400">60XX</span> - ESPHome Native API</span>
+                    </div>
+                </div>
+
+                <!-- Boards Console -->
+                <div class="mt-6 bg-gray-800 rounded-xl p-6 border border-gray-700">
+                    <div class="flex items-center justify-between mb-4">
+                        <h2 class="text-xl font-semibold">Board Operations Log</h2>
+                        <button id="clear-boards-console-btn" class="text-sm text-gray-400 hover:text-white">
+                            Clear
+                        </button>
+                    </div>
+                    <div id="boards-console-output" class="console-panel bg-gray-900 rounded-lg p-4 h-48 overflow-y-auto font-mono text-sm">
+                        <p class="text-gray-500">Ready...</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Upload & Flash Tab -->
+            <div id="tab-upload" class="tab-content hidden">
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <!-- Upload Panel -->
+                    <div class="bg-gray-800 rounded-xl p-6 border border-gray-700">
+                        <h2 class="text-xl font-semibold mb-4">Upload Firmware</h2>
+
+                        <!-- Project Type Selector -->
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium text-gray-300 mb-2">Project Type</label>
+                            <div class="flex space-x-2">
+                                <button data-type="binary" class="project-type-btn active flex-1 py-2 rounded-lg border border-gray-600 transition-colors">
+                                    Binary (.bin)
+                                </button>
+                                <button data-type="esphome" class="project-type-btn flex-1 py-2 rounded-lg border border-gray-600 transition-colors">
+                                    ESPHome
+                                </button>
+                                <button data-type="arduino" class="project-type-btn flex-1 py-2 rounded-lg border border-gray-600 transition-colors">
+                                    Arduino
+                                </button>
+                                <button data-type="platformio" class="project-type-btn flex-1 py-2 rounded-lg border border-gray-600 transition-colors">
+                                    PlatformIO
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Drop Zone -->
+                        <div id="drop-zone" class="border-2 border-dashed border-gray-600 rounded-xl p-8 text-center hover:border-cactus-500 transition-colors cursor-pointer">
+                            <div class="text-4xl mb-2">📁</div>
+                            <p class="text-gray-400">Drag & drop files here or click to browse</p>
+                            <p id="file-hint" class="text-sm text-gray-500 mt-1">.bin firmware file</p>
+                            <input type="file" id="file-input" class="hidden" accept=".bin">
+                        </div>
+
+                        <div id="selected-file" class="mt-4 hidden">
+                            <div class="flex items-center justify-between bg-gray-700 rounded-lg p-3">
+                                <span id="selected-file-name" class="text-sm truncate"></span>
+                                <button id="clear-file-btn" class="text-gray-400 hover:text-white">✕</button>
+                            </div>
+                        </div>
+
+                        <!-- Target Board Selector -->
+                        <div class="mt-4">
+                            <label class="block text-sm font-medium text-gray-300 mb-2">Target Board</label>
+                            <select id="target-board" class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg">
+                                <option value="">Select a board...</option>
+                            </select>
+                        </div>
+
+                        <!-- Flash Button -->
+                        <button id="flash-btn" disabled
+                                class="w-full mt-4 py-3 bg-cactus-600 hover:bg-cactus-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg font-medium transition-colors">
+                            Flash Firmware
+                        </button>
+                    </div>
+
+                    <!-- Console Panel -->
+                    <div class="bg-gray-800 rounded-xl p-6 border border-gray-700">
+                        <div class="flex items-center justify-between mb-4">
+                            <h2 class="text-xl font-semibold">Console</h2>
+                            <button id="clear-console-btn" class="text-sm text-gray-400 hover:text-white">
+                                Clear
+                            </button>
+                        </div>
+
+                        <!-- Progress Bar -->
+                        <div id="progress-container" class="mb-4 hidden">
+                            <div class="flex items-center justify-between text-sm mb-1">
+                                <span id="progress-status">Uploading...</span>
+                                <span id="progress-percent">0%</span>
+                            </div>
+                            <div class="w-full bg-gray-700 rounded-full h-2">
+                                <div id="progress-bar" class="bg-cactus-500 h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
+                            </div>
+                        </div>
+
+                        <!-- Console Output -->
+                        <div id="console-output" class="console-panel bg-gray-900 rounded-lg p-4 h-80 overflow-y-auto font-mono text-sm">
+                            <p class="text-gray-500">Ready to flash...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Builds Tab -->
+            <div id="tab-builds" class="tab-content hidden">
+                <div class="flex items-center justify-between mb-4">
+                    <h2 class="text-xl font-semibold">Build History</h2>
+                    <button id="refresh-builds-btn" class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors">
+                        Refresh
+                    </button>
+                </div>
+                <div id="builds-list" class="space-y-3">
+                    <!-- Build items will be inserted here -->
+                </div>
+            </div>
+
+            <!-- Settings Tab -->
+            <div id="tab-settings" class="tab-content hidden">
+                <div class="max-w-2xl space-y-6">
+                    <!-- DDNS Settings -->
+                    <div class="bg-gray-800 rounded-xl p-6 border border-gray-700">
+                        <h3 class="text-lg font-semibold mb-4">Network Settings</h3>
+                        <div class="space-y-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-300 mb-1">DDNS Host</label>
+                                <input type="text" id="ddns-host" value="esp32gb.ddns.net"
+                                       class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-cactus-500">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Add Board Form -->
+                    <div class="bg-gray-800 rounded-xl p-6 border border-gray-700">
+                        <h3 class="text-lg font-semibold mb-4">Add New Board</h3>
+                        <form id="add-board-form" class="space-y-4">
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-300 mb-1">Board Name</label>
+                                    <input type="text" id="board-name" placeholder="cactus-sentinel"
+                                           class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg" required>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-300 mb-1">Board ID (01-99)</label>
+                                    <input type="number" id="board-id" min="1" max="99" placeholder="88"
+                                           class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg" required>
+                                </div>
+                            </div>
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-300 mb-1">Board Type</label>
+                                    <select id="board-type" class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg">
+                                        <option value="esp32">ESP32</option>
+                                        <option value="esp32s2">ESP32-S2</option>
+                                        <option value="esp32s3">ESP32-S3</option>
+                                        <option value="esp32c3">ESP32-C3</option>
+                                        <option value="esp8266">ESP8266</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-300 mb-1">Custom Host (optional)</label>
+                                    <input type="text" id="board-host" placeholder="Leave empty to use DDNS"
+                                           class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg">
+                                </div>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-300 mb-1">Hostname (optional)</label>
+                                <input type="text" id="board-hostname" placeholder="Auto-generated if empty (e.g. sentinel-88.esp32gb.ddns.net)"
+                                       class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-300 mb-1">API Encryption Key (optional)</label>
+                                <input type="password" id="board-api-key" placeholder="ESPHome native API encryption key"
+                                       class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg">
+                            </div>
+                            <button type="submit" class="px-4 py-2 bg-cactus-600 hover:bg-cactus-700 rounded-lg transition-colors">
+                                Add Board
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Add Board Modal -->
+    <div id="add-board-modal" class="fixed inset-0 bg-black/80 flex items-center justify-center z-50 hidden">
+        <div class="bg-gray-800 rounded-xl p-6 w-full max-w-md border border-gray-700">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-lg font-semibold">Add New Board</h3>
+                <button id="close-add-board-modal" class="text-gray-400 hover:text-white text-2xl">&times;</button>
+            </div>
+            <form id="modal-add-board-form" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-1">Board Name</label>
+                    <input type="text" id="modal-board-name" placeholder="cactus-sentinel"
+                           class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg" required>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-1">Board ID (01-99)</label>
+                    <input type="number" id="modal-board-id" min="1" max="99" placeholder="88"
+                           class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg" required>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-1">Board Type</label>
+                    <select id="modal-board-type" class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg">
+                        <option value="esp32">ESP32</option>
+                        <option value="esp32s2">ESP32-S2</option>
+                        <option value="esp32s3">ESP32-S3</option>
+                        <option value="esp32c3">ESP32-C3</option>
+                        <option value="esp8266">ESP8266</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-1">Custom Host (optional)</label>
+                    <input type="text" id="modal-board-host" placeholder="Leave empty to use DDNS"
+                           class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-1">Hostname (optional)</label>
+                    <input type="text" id="modal-board-hostname" placeholder="Auto-generated if empty"
+                           class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-1">API Encryption Key (optional)</label>
+                    <input type="password" id="modal-board-api-key" placeholder="ESPHome native API key"
+                           class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg">
+                </div>
+                <div class="flex space-x-3">
+                    <button type="button" id="cancel-add-board" class="flex-1 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors">
+                        Cancel
+                    </button>
+                    <button type="submit" class="flex-1 py-2 bg-cactus-600 hover:bg-cactus-700 rounded-lg transition-colors">
+                        Add Board
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script src="/static/js/app.js?v=6"></script>
+</body>
+</html>

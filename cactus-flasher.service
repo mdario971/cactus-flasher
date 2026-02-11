@@ -1,0 +1,21 @@
+[Unit]
+Description=Cactus Flasher - ESP32 Web Flasher
+After=network.target
+
+[Service]
+Type=exec
+User=debian
+Group=debian
+WorkingDirectory=/home/debian/cactus-flasher
+EnvironmentFile=/home/debian/cactus-flasher/.env
+ExecStart=/home/debian/cactus-flasher/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
+Restart=always
+RestartSec=5
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/debian/cactus-flasher/config /home/debian/cactus-flasher/uploads /home/debian/cactus-flasher/builds
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target
