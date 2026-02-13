@@ -94,7 +94,7 @@ async def scan_single_board(name: str, board: dict) -> Dict[str, Any]:
     If webserver is online, also tries to discover MAC address and sensors.
     """
     ports = get_board_ports(board["id"])
-    host = board.get("host", settings.DDNS_HOST)
+    host = board.get("host") or settings.DDNS_HOST
 
     # Check OTA port (most reliable for ESP32 OTA)
     ota_online = await scan_board(host, ports["ota"])
@@ -168,7 +168,7 @@ async def scan_all_boards(boards: Dict[str, dict]) -> List[Dict[str, Any]]:
                 "name": name,
                 "id": board["id"],
                 "type": board.get("type", "esp32"),
-                "host": board.get("host", settings.DDNS_HOST),
+                "host": board.get("host") or settings.DDNS_HOST,
                 "hostname": hostname,
                 "ports": ports,
                 "online": False,
