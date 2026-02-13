@@ -16,9 +16,11 @@
 - **Token format**: `Authorization: Bearer <jwt_token>`
 - **Login endpoint**: `POST /api/auth/login` - accepts JSON `{username, password}`, returns `{access_token, token_type, username}`
 - **Token validation**: `GET /api/auth/me` - returns `{username}`
-- **Default admin**: username `admin`, password `cactus123` (auto-created on first startup)
+- **Default admin**: username `admin`, password `cactus123` (auto-created on first startup, skip_validation=True)
+- **Password policy**: min 8 chars, 1 uppercase, 1 lowercase, 1 digit, 1 special char — enforced by `validate_password()`
 - **JWT config**: HS256 algorithm, 60 min expiry, secret key in `settings.SECRET_KEY`
 - **Password storage**: bcrypt with 12 rounds, stored in `config/credentials.yaml`
+- **User management**: list users, change password, delete user (cannot delete self or last user)
 - **Auth dependency**: `get_current_user()` returns username string, uses `Depends(security)` where `security = HTTPBearer()`
 
 ### Frontend Auth (VERIFIED WORKING)
@@ -38,10 +40,10 @@ cactus-flasher/
     config.py            # Settings, YAML config loader, board port calculator
     models/
       __init__.py
-      schemas.py         # Pydantic models (Login, Board, Build, Flash, WS)
+      schemas.py         # Pydantic models (Login, Board, Build, Flash, WS, Sensor)
     routers/
       __init__.py
-      boards.py          # CRUD + scan + ping for boards
+      boards.py          # CRUD + scan + ping + status-log for boards
       build.py           # ESPHome/Arduino/PlatformIO compilation
       flash.py           # OTA firmware upload + flash
     services/
@@ -50,14 +52,17 @@ cactus-flasher/
       esphome.py         # ESPHome compilation
       platformio.py      # PlatformIO compilation
       ota.py             # HTTP OTA flash (multipart + chunked)
-      scanner.py         # TCP/HTTP board scanning + discovery
+      scanner.py         # TCP/HTTP board scanning + discovery + MAC/sensor auto-discovery
+      status_logger.py   # Persistent board online/offline status logging
+      sensors.py         # ESPHome web_server sensor scraping/discovery
   config/
-    boards.yaml          # Board registry (name -> id, type, host)
+    boards.yaml          # Board registry (name -> id, type, host, mac_address, last_seen, sensors)
     credentials.yaml     # User credentials (bcrypt hashes)
+    board_status_log.yaml # Persistent board status transition log (auto-created)
   static/
-    index.html           # SPA with Tailwind CSS dark theme
-    css/style.css        # Custom styles (cards, badges, animations)
-    js/app.js            # CactusFlasher class (auth, boards, build, flash)
+    index.html           # SPA with Tailwind CSS dark theme (5 tabs: Boards, Upload, Builds, Settings, Guide)
+    css/style.css        # Custom styles (cards, badges, animations, tooltips)
+    js/app.js            # CactusFlasher class (auth, boards, build, flash, status log, sensors)
   venv/                  # Python virtual environment (Python 3.13)
   requirements.txt       # Dependencies
   README.md              # Full documentation
@@ -70,9 +75,13 @@ cactus-flasher/
 | POST | /api/auth/login | No | main.py:login |
 | POST | /api/auth/register | Yes | main.py:register |
 | GET | /api/auth/me | Yes | main.py:get_me |
+| GET | /api/auth/users | Yes | main.py:get_users |
+| PUT | /api/auth/change-password | Yes | main.py:api_change_password |
+| DELETE | /api/auth/users/{username} | Yes | main.py:api_delete_user |
 | GET | /api/boards | No | boards.py:list_boards |
 | POST | /api/boards | No | boards.py:create_board |
 | GET | /api/boards/scan | No | boards.py:scan_boards |
+| GET | /api/boards/status-log | No | boards.py:get_board_status_log |
 | GET | /api/boards/discover | No | boards.py:discover_boards |
 | GET | /api/boards/{name} | No | boards.py:get_board |
 | PUT | /api/boards/{name} | No | boards.py:update_board |
@@ -123,9 +132,19 @@ VPS (cactus-flasher on port 8000)
 3. **DO NOT modify credentials.yaml manually** - bcrypt hashes are sensitive to format.
 4. **Build/flash operations are in-memory dicts** - they reset on server restart (by design).
 5. **Board routes have NO auth** - only auth endpoints use `get_current_user` dependency.
-6. **The `/api/boards/scan` and `/api/boards/discover` paths must come BEFORE `/{board_name}`** in router registration - FastAPI matches routes in order.
+6. **The `/api/boards/scan`, `/api/boards/status-log`, and `/api/boards/discover` paths must come BEFORE `/{board_name}`** in router registration - FastAPI matches routes in order.
 7. **Frontend stores token in localStorage** - NOT cookies, NOT sessionStorage.
 8. **CORS allows all origins** - needed for cross-origin requests during development.
+9. **ESPHome build now supports companion files** - `yaml_file` + `companion_files` OR `.zip` archive.
+10. **Arduino build backend already supports `libraries` param** - frontend now sends multi-file correctly.
+11. **Board `mac_address` field is optional** - stored in boards.yaml, displayed on cards and flash selector.
+12. **Password validation enforced on `create_user` and `change_password`** - `init_default_admin` uses `skip_validation=True` for the default `cactus123` password.
+13. **`create_user()` now returns `Tuple[bool, str]`** instead of `bool` — callers must handle the error message.
+14. **Board `last_seen` field is auto-updated** — on scan (if online) and on ping (if online). Stored as ISO timestamp in boards.yaml.
+15. **Sensor data is auto-discovered during scan** — from ESPHome web_server page (HTML scraping + /events SSE fallback). Stored in boards.yaml per board.
+16. **Status log uses YAML file** — `config/board_status_log.yaml` tracks online/offline transitions. Only logs when status changes. Auto-trims at 500 entries.
+17. **MAC address auto-discovery** — during scan, if `web_online` and no MAC stored, tries to extract from ESPHome web page via regex.
+18. **Frontend has 5 tabs** — Boards, Upload & Flash, Builds, Settings, Guide. The Guide tab is static HTML documentation.
 
 ## Running the App
 ```bash
@@ -155,3 +174,9 @@ tar -czf /home/debian/backups/cactus-flasher-backup-$(date +%Y%m%d-%H%M%S).tar.g
 - WebSocket auth (currently unauthenticated)
 - File size validation on uploads
 - Cleanup of old builds/uploads
+- ESPHome native API sensor discovery (requires `aioesphomeapi` + board API key)
+- Expandable board detail view with sensor data, device info, uptime
+- Force password change on first login with default credentials
+- Auto-scan interval (periodic background scan for board status)
+- Sensor history tracking (time-series data for charts)
+- Board grouping / tagging for organization

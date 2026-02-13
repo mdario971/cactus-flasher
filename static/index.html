@@ -94,6 +94,9 @@
                 <button data-tab="settings" class="tab-btn px-4 py-2 rounded-md transition-colors">
                     Settings
                 </button>
+                <button data-tab="guide" class="tab-btn px-4 py-2 rounded-md transition-colors">
+                    Guide
+                </button>
             </div>
 
             <!-- Boards Tab -->
@@ -101,15 +104,24 @@
                 <div class="flex items-center justify-between mb-4">
                     <h2 class="text-xl font-semibold">Registered Boards</h2>
                     <div class="space-x-2">
-                        <button id="scan-boards-btn" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors">
-                            Scan All
-                        </button>
-                        <button id="discover-boards-btn" class="px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg transition-colors">
-                            Discover
-                        </button>
-                        <button id="add-board-btn" class="px-4 py-2 bg-cactus-600 hover:bg-cactus-700 rounded-lg transition-colors">
-                            Add Board
-                        </button>
+                        <div class="tooltip-wrapper inline-block">
+                            <button id="scan-boards-btn" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors">
+                                Scan All
+                            </button>
+                            <span class="tooltip-text tooltip-wide">Check all registered boards for online/offline status (OTA, Web, API ports)</span>
+                        </div>
+                        <div class="tooltip-wrapper inline-block">
+                            <button id="discover-boards-btn" class="px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg transition-colors">
+                                Discover
+                            </button>
+                            <span class="tooltip-text tooltip-wide">Probe OTA ports 8201-8299 on the network to find unregistered boards</span>
+                        </div>
+                        <div class="tooltip-wrapper inline-block">
+                            <button id="add-board-btn" class="px-4 py-2 bg-cactus-600 hover:bg-cactus-700 rounded-lg transition-colors">
+                                Add Board
+                            </button>
+                            <span class="tooltip-text">Manually register a new ESP32 board</span>
+                        </div>
                     </div>
                 </div>
                 <div id="boards-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
@@ -136,6 +148,19 @@
                     </div>
                     <div id="boards-console-output" class="console-panel bg-gray-900 rounded-lg p-4 h-48 overflow-y-auto font-mono text-sm">
                         <p class="text-gray-500">Ready...</p>
+                    </div>
+                </div>
+
+                <!-- Connection History (Status Log) -->
+                <div class="mt-6 bg-gray-800 rounded-xl p-6 border border-gray-700">
+                    <div class="flex items-center justify-between mb-4">
+                        <h2 class="text-xl font-semibold">Connection History</h2>
+                        <button id="refresh-status-log-btn" class="text-sm text-gray-400 hover:text-white">
+                            Refresh
+                        </button>
+                    </div>
+                    <div id="status-log-container" class="max-h-64 overflow-y-auto">
+                        <p class="text-gray-500 text-sm">No status changes recorded yet. Run a scan to start tracking.</p>
                     </div>
                 </div>
             </div>
@@ -174,10 +199,15 @@
                             <input type="file" id="file-input" class="hidden" accept=".bin">
                         </div>
 
-                        <div id="selected-file" class="mt-4 hidden">
-                            <div class="flex items-center justify-between bg-gray-700 rounded-lg p-3">
-                                <span id="selected-file-name" class="text-sm truncate"></span>
-                                <button id="clear-file-btn" class="text-gray-400 hover:text-white">✕</button>
+                        <div id="selected-files" class="mt-4 hidden">
+                            <div class="bg-gray-700 rounded-lg p-3">
+                                <div class="flex items-center justify-between mb-2">
+                                    <span id="selected-files-count" class="text-sm font-medium"></span>
+                                    <button id="clear-file-btn" class="text-gray-400 hover:text-white text-sm">Clear all</button>
+                                </div>
+                                <div id="selected-files-list" class="space-y-1 text-sm text-gray-300 max-h-32 overflow-y-auto">
+                                    <!-- File entries will be rendered here -->
+                                </div>
                             </div>
                         </div>
 
@@ -240,6 +270,83 @@
             <!-- Settings Tab -->
             <div id="tab-settings" class="tab-content hidden">
                 <div class="max-w-2xl space-y-6">
+                    <!-- User Management -->
+                    <div class="bg-gray-800 rounded-xl p-6 border border-gray-700">
+                        <h3 class="text-lg font-semibold mb-4">User Management</h3>
+
+                        <!-- User List -->
+                        <div id="users-list" class="mb-6">
+                            <table class="w-full text-sm">
+                                <thead>
+                                    <tr class="border-b border-gray-700">
+                                        <th class="text-left py-2 text-gray-400">Username</th>
+                                        <th class="text-left py-2 text-gray-400">Created</th>
+                                        <th class="text-left py-2 text-gray-400">Password Changed</th>
+                                        <th class="text-right py-2 text-gray-400">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="users-table-body">
+                                    <!-- Users will be rendered here -->
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <!-- Register New User -->
+                        <div class="border-t border-gray-700 pt-4 mb-4">
+                            <h4 class="text-sm font-semibold text-gray-300 mb-3">Register New User</h4>
+                            <form id="register-user-form" class="space-y-3">
+                                <div class="grid grid-cols-2 gap-3">
+                                    <div>
+                                        <input type="text" id="reg-username" placeholder="Username"
+                                               class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-sm" required>
+                                    </div>
+                                    <div>
+                                        <input type="password" id="reg-password" placeholder="Password"
+                                               class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-sm" required>
+                                    </div>
+                                </div>
+                                <div>
+                                    <input type="password" id="reg-password-confirm" placeholder="Confirm Password"
+                                           class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-sm" required>
+                                </div>
+                                <div id="reg-password-strength" class="text-xs hidden"></div>
+                                <div id="reg-error" class="text-red-400 text-xs hidden"></div>
+                                <button type="submit" class="px-4 py-2 bg-cactus-600 hover:bg-cactus-700 rounded-lg text-sm transition-colors">
+                                    Register User
+                                </button>
+                            </form>
+                        </div>
+
+                        <!-- Change Password -->
+                        <div class="border-t border-gray-700 pt-4">
+                            <h4 class="text-sm font-semibold text-gray-300 mb-3">Change Your Password</h4>
+                            <form id="change-password-form" class="space-y-3">
+                                <div>
+                                    <input type="password" id="cp-old-password" placeholder="Current Password"
+                                           class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-sm" required>
+                                </div>
+                                <div>
+                                    <input type="password" id="cp-new-password" placeholder="New Password"
+                                           class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-sm" required>
+                                </div>
+                                <div>
+                                    <input type="password" id="cp-new-password-confirm" placeholder="Confirm New Password"
+                                           class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-sm" required>
+                                </div>
+                                <div id="cp-password-strength" class="text-xs hidden"></div>
+                                <div id="cp-error" class="text-red-400 text-xs hidden"></div>
+                                <button type="submit" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm transition-colors">
+                                    Change Password
+                                </button>
+                            </form>
+                        </div>
+
+                        <!-- Password Requirements -->
+                        <div class="mt-4 p-3 bg-gray-900 rounded-lg text-xs text-gray-500">
+                            Password requirements: min 8 characters, 1 uppercase, 1 lowercase, 1 digit, 1 special character (!@#$%^&*...)
+                        </div>
+                    </div>
+
                     <!-- DDNS Settings -->
                     <div class="bg-gray-800 rounded-xl p-6 border border-gray-700">
                         <h3 class="text-lg font-semibold mb-4">Network Settings</h3>
@@ -290,16 +397,232 @@
                                 <input type="text" id="board-hostname" placeholder="Auto-generated if empty (e.g. sentinel-88.esp32gb.ddns.net)"
                                        class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg">
                             </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-300 mb-1">API Encryption Key (optional)</label>
-                                <input type="password" id="board-api-key" placeholder="ESPHome native API encryption key"
-                                       class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg">
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-300 mb-1">MAC Address (optional)</label>
+                                    <input type="text" id="board-mac" placeholder="AA:BB:CC:DD:EE:FF"
+                                           class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg"
+                                           pattern="^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-300 mb-1">API Encryption Key (optional)</label>
+                                    <input type="password" id="board-api-key" placeholder="ESPHome native API key"
+                                           class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg">
+                                </div>
                             </div>
                             <button type="submit" class="px-4 py-2 bg-cactus-600 hover:bg-cactus-700 rounded-lg transition-colors">
                                 Add Board
                             </button>
                         </form>
                     </div>
+                </div>
+            </div>
+
+            <!-- Guide Tab -->
+            <div id="tab-guide" class="tab-content hidden">
+                <div class="max-w-3xl space-y-6">
+
+                    <!-- What is Cactus Flasher -->
+                    <div class="bg-gray-800 rounded-xl p-6 border border-gray-700">
+                        <h2 class="text-xl font-semibold text-cactus-400 mb-3">What is Cactus Flasher?</h2>
+                        <p class="text-gray-300 leading-relaxed">
+                            Cactus Flasher is a web-based OTA (Over-The-Air) firmware flasher for ESP32 boards.
+                            It allows you to manage, monitor, and update ESP32 devices remotely through a browser interface.
+                            The application runs on a VPS and connects to your ESP32 boards via DDNS and port forwarding.
+                        </p>
+                        <div class="mt-3 p-3 bg-gray-900 rounded-lg text-sm text-gray-400">
+                            <strong class="text-gray-300">Key features:</strong> Board management, multi-format firmware flashing (Binary, ESPHome, Arduino, PlatformIO),
+                            real-time status monitoring, sensor discovery, connection history logging.
+                        </div>
+                    </div>
+
+                    <!-- How to Flash Firmware -->
+                    <div class="bg-gray-800 rounded-xl p-6 border border-gray-700">
+                        <h2 class="text-xl font-semibold text-cactus-400 mb-3">How to Flash Firmware</h2>
+                        <div class="guide-steps space-y-4">
+                            <div class="guide-step">
+                                <h4 class="font-medium text-gray-200">Select Project Type</h4>
+                                <p class="text-gray-400 text-sm">Choose between Binary (.bin), ESPHome (.yaml), Arduino (.ino), or PlatformIO (.zip) depending on your firmware format.</p>
+                            </div>
+                            <div class="guide-step">
+                                <h4 class="font-medium text-gray-200">Upload Firmware Files</h4>
+                                <p class="text-gray-400 text-sm">Drag and drop your firmware file(s) into the upload zone, or click to browse. For ESPHome and Arduino, you can include companion/library files.</p>
+                            </div>
+                            <div class="guide-step">
+                                <h4 class="font-medium text-gray-200">Select Target Board</h4>
+                                <p class="text-gray-400 text-sm">Choose which ESP32 board to flash from the dropdown. Only online boards can receive OTA updates. You can also click "Flash" directly on a board card.</p>
+                            </div>
+                            <div class="guide-step">
+                                <h4 class="font-medium text-gray-200">Flash & Monitor</h4>
+                                <p class="text-gray-400 text-sm">Click "Flash Firmware" and watch the console. For non-binary types, the system will compile first, then flash. The board will reboot automatically after a successful flash.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Project Types -->
+                    <div class="bg-gray-800 rounded-xl p-6 border border-gray-700">
+                        <h2 class="text-xl font-semibold text-cactus-400 mb-3">Project Types</h2>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div class="bg-gray-900 rounded-lg p-4 border border-gray-700/50">
+                                <h3 class="text-cactus-400 font-semibold mb-2">Binary (.bin)</h3>
+                                <p class="text-gray-400 text-sm">Pre-compiled firmware binary. Upload directly and flash immediately. No compilation needed. Fastest option when you already have a .bin file.</p>
+                            </div>
+                            <div class="bg-gray-900 rounded-lg p-4 border border-gray-700/50">
+                                <h3 class="text-cactus-400 font-semibold mb-2">ESPHome (.yaml)</h3>
+                                <p class="text-gray-400 text-sm">Upload a YAML configuration file. Supports companion files (HTML, CSS, JS for web_server component) or a .zip archive. The server compiles it using ESPHome, then flashes.</p>
+                            </div>
+                            <div class="bg-gray-900 rounded-lg p-4 border border-gray-700/50">
+                                <h3 class="text-cactus-400 font-semibold mb-2">Arduino (.ino)</h3>
+                                <p class="text-gray-400 text-sm">Upload an Arduino sketch (.ino) with optional library files (.h, .cpp, .c). Compiled using arduino-cli with ESP32 board support, then flashed via OTA.</p>
+                            </div>
+                            <div class="bg-gray-900 rounded-lg p-4 border border-gray-700/50">
+                                <h3 class="text-cactus-400 font-semibold mb-2">PlatformIO (.zip)</h3>
+                                <p class="text-gray-400 text-sm">Upload a zipped PlatformIO project containing platformio.ini and source code. The server builds it using PlatformIO CLI, then flashes the resulting binary.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Scan vs Discover -->
+                    <div class="bg-gray-800 rounded-xl p-6 border border-gray-700">
+                        <h2 class="text-xl font-semibold text-cactus-400 mb-3">Scan vs Discover</h2>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div class="bg-gray-900 rounded-lg p-4 border border-blue-900/30">
+                                <h3 class="text-blue-400 font-semibold mb-2">Scan All</h3>
+                                <ul class="text-gray-400 text-sm space-y-1.5">
+                                    <li>Checks <strong class="text-gray-300">all registered boards</strong> in your board list</li>
+                                    <li>Tests 3 ports per board: OTA (82XX), Web (80XX), API (60XX)</li>
+                                    <li>Reports detailed online/offline status for each board</li>
+                                    <li>Auto-discovers MAC address and sensors from online boards</li>
+                                    <li>Updates "last seen" timestamps</li>
+                                    <li>Logs status transitions in Connection History</li>
+                                </ul>
+                                <p class="text-blue-400/70 text-xs mt-3">Use this to check the health of your known boards</p>
+                            </div>
+                            <div class="bg-gray-900 rounded-lg p-4 border border-purple-900/30">
+                                <h3 class="text-purple-400 font-semibold mb-2">Discover</h3>
+                                <ul class="text-gray-400 text-sm space-y-1.5">
+                                    <li>Probes <strong class="text-gray-300">OTA ports 8201-8299</strong> on the DDNS host</li>
+                                    <li>Finds boards <strong class="text-gray-300">not yet registered</strong> in your board list</li>
+                                    <li>Maps port number back to board ID (port 8288 = board ID 88)</li>
+                                    <li>Automatically registers new boards with auto-generated names</li>
+                                    <li>Scans in batches of 20 ports to avoid network overload</li>
+                                </ul>
+                                <p class="text-purple-400/70 text-xs mt-3">Use this to find new boards on your network</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Port Convention -->
+                    <div class="bg-gray-800 rounded-xl p-6 border border-gray-700">
+                        <h2 class="text-xl font-semibold text-cactus-400 mb-3">Board Port Convention</h2>
+                        <p class="text-gray-400 text-sm mb-3">Each board ID (01-99) maps to three dedicated ports:</p>
+                        <table class="w-full text-sm">
+                            <thead>
+                                <tr class="border-b border-gray-700">
+                                    <th class="text-left py-2 text-gray-400">Service</th>
+                                    <th class="text-left py-2 text-gray-400">Port Formula</th>
+                                    <th class="text-left py-2 text-gray-400">Example (ID=88)</th>
+                                    <th class="text-left py-2 text-gray-400">Purpose</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr class="border-b border-gray-700/50">
+                                    <td class="py-2"><span class="port-badge web">WEB</span></td>
+                                    <td class="py-2 font-mono text-gray-300">80XX</td>
+                                    <td class="py-2 font-mono text-gray-300">8088</td>
+                                    <td class="py-2 text-gray-400">Web server / browser access</td>
+                                </tr>
+                                <tr class="border-b border-gray-700/50">
+                                    <td class="py-2"><span class="port-badge ota">OTA</span></td>
+                                    <td class="py-2 font-mono text-gray-300">82XX</td>
+                                    <td class="py-2 font-mono text-gray-300">8288</td>
+                                    <td class="py-2 text-gray-400">OTA firmware updates</td>
+                                </tr>
+                                <tr>
+                                    <td class="py-2"><span class="port-badge api">API</span></td>
+                                    <td class="py-2 font-mono text-gray-300">60XX</td>
+                                    <td class="py-2 font-mono text-gray-300">6088</td>
+                                    <td class="py-2 text-gray-400">ESPHome Native API</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- Hostname Convention -->
+                    <div class="bg-gray-800 rounded-xl p-6 border border-gray-700">
+                        <h2 class="text-xl font-semibold text-cactus-400 mb-3">Hostname Convention</h2>
+                        <p class="text-gray-400 text-sm mb-2">Hostnames are auto-generated from the board name and ID:</p>
+                        <div class="bg-gray-900 rounded-lg p-4 font-mono text-sm">
+                            <p class="text-gray-300">1. Strip prefix: <span class="text-gray-500">cactus-</span>, <span class="text-gray-500">esp32-</span>, or <span class="text-gray-500">esp-</span></p>
+                            <p class="text-gray-300 mt-1">2. Format: <span class="text-cactus-400">{shortname}-{ID:02d}.{DDNS_HOST}</span></p>
+                            <p class="text-gray-400 mt-2">Example: <span class="text-gray-300">cactus-sentinel</span> ID 88</p>
+                            <p class="text-cactus-400 ml-4">sentinel-88.esp32gb.ddns.net</p>
+                        </div>
+                        <p class="text-gray-500 text-xs mt-2">Custom hostnames can be set to override auto-generation.</p>
+                    </div>
+
+                    <!-- Network Topology -->
+                    <div class="bg-gray-800 rounded-xl p-6 border border-gray-700">
+                        <h2 class="text-xl font-semibold text-cactus-400 mb-3">Network Topology</h2>
+                        <div class="bg-gray-900 rounded-lg p-4 font-mono text-sm text-center">
+                            <div class="space-y-2">
+                                <p class="text-blue-400">VPS (Cactus Flasher on port 8000)</p>
+                                <p class="text-gray-600">&darr;</p>
+                                <p class="text-purple-400">DDNS: esp32gb.ddns.net</p>
+                                <p class="text-gray-600">&darr;</p>
+                                <p class="text-amber-400">Home Router (port forwarding per board)</p>
+                                <p class="text-gray-600">&darr;</p>
+                                <p class="text-cactus-400">ESP32 Boards (local network)</p>
+                            </div>
+                        </div>
+                        <p class="text-gray-500 text-xs mt-3">
+                            Each board requires port forwarding on your router for its WEB, OTA, and API ports.
+                        </p>
+                    </div>
+
+                    <!-- Troubleshooting -->
+                    <div class="bg-gray-800 rounded-xl p-6 border border-gray-700">
+                        <h2 class="text-xl font-semibold text-cactus-400 mb-3">Troubleshooting</h2>
+                        <div class="space-y-4">
+                            <div>
+                                <h4 class="font-medium text-red-400 mb-1">Board shows Offline</h4>
+                                <ul class="text-gray-400 text-sm space-y-1 ml-4 list-disc">
+                                    <li>Check that the ESP32 is powered on and connected to WiFi</li>
+                                    <li>Verify port forwarding rules on your router (OTA port 82XX, Web port 80XX)</li>
+                                    <li>Ensure the DDNS hostname resolves correctly</li>
+                                    <li>Try pinging the board directly to see which ports respond</li>
+                                </ul>
+                            </div>
+                            <div>
+                                <h4 class="font-medium text-red-400 mb-1">Flash Failed</h4>
+                                <ul class="text-gray-400 text-sm space-y-1 ml-4 list-disc">
+                                    <li>Confirm the board is online (OTA port must respond)</li>
+                                    <li>Check that the firmware binary is compatible with the board type</li>
+                                    <li>Ensure sufficient space on the ESP32 for the new firmware</li>
+                                    <li>Review the console output for specific error messages</li>
+                                </ul>
+                            </div>
+                            <div>
+                                <h4 class="font-medium text-red-400 mb-1">Build Failed</h4>
+                                <ul class="text-gray-400 text-sm space-y-1 ml-4 list-disc">
+                                    <li>Check YAML/sketch syntax for compilation errors</li>
+                                    <li>Ensure required build tools are installed (esphome, arduino-cli, platformio)</li>
+                                    <li>Review build logs for detailed error messages</li>
+                                    <li>For Arduino: verify the FQBN matches your board type</li>
+                                </ul>
+                            </div>
+                            <div>
+                                <h4 class="font-medium text-red-400 mb-1">No Sensors Detected</h4>
+                                <ul class="text-gray-400 text-sm space-y-1 ml-4 list-disc">
+                                    <li>Ensure the board has the ESPHome web_server component enabled</li>
+                                    <li>The web server must be accessible on port 80XX</li>
+                                    <li>Sensors are discovered during "Scan All" - run a scan first</li>
+                                    <li>Check that sensor entities are exposed in your ESPHome config</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
                 </div>
             </div>
         </main>
@@ -344,6 +667,12 @@
                            class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg">
                 </div>
                 <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-1">MAC Address (optional)</label>
+                    <input type="text" id="modal-board-mac" placeholder="AA:BB:CC:DD:EE:FF"
+                           class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg"
+                           pattern="^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$">
+                </div>
+                <div>
                     <label class="block text-sm font-medium text-gray-300 mb-1">API Encryption Key (optional)</label>
                     <input type="password" id="modal-board-api-key" placeholder="ESPHome native API key"
                            class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg">
@@ -360,6 +689,6 @@
         </div>
     </div>
 
-    <script src="/static/js/app.js?v=6"></script>
+    <script src="/static/js/app.js?v=8"></script>
 </body>
 </html>

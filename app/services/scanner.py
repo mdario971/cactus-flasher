@@ -1,7 +1,7 @@
 """Board scanner service for Cactus Flasher."""
 import asyncio
-import socket
-from typing import Dict, List, Any
+import re
+from typing import Dict, List, Any, Optional
 import aiohttp
 
 from ..config import get_board_ports, get_board_hostname, settings
@@ -58,8 +58,41 @@ async def get_board_info(host: str, api_port: int, timeout: float = 5.0) -> Dict
         return {"api_available": False}
 
 
+async def get_mac_address(
+    host: str, webserver_port: int, timeout: float = 5.0
+) -> Optional[str]:
+    """Try to extract MAC address from ESPHome web server page.
+
+    ESPHome web_server pages typically include the device MAC address
+    somewhere in the HTML content.
+    """
+    url = f"http://{host}:{webserver_port}/"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                url, timeout=aiohttp.ClientTimeout(total=timeout)
+            ) as response:
+                if response.status == 200:
+                    html = await response.text()
+                    # Look for MAC address pattern in HTML
+                    mac_match = re.search(
+                        r'([0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:'
+                        r'[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2})',
+                        html,
+                    )
+                    if mac_match:
+                        return mac_match.group(1).upper()
+    except Exception:
+        pass
+    return None
+
+
 async def scan_single_board(name: str, board: dict) -> Dict[str, Any]:
-    """Scan a single board and return its status."""
+    """Scan a single board and return its status.
+
+    Checks OTA, webserver, and API ports.
+    If webserver is online, also tries to discover MAC address and sensors.
+    """
     ports = get_board_ports(board["id"])
     host = board.get("host", settings.DDNS_HOST)
 
@@ -76,6 +109,22 @@ async def scan_single_board(name: str, board: dict) -> Dict[str, Any]:
 
     hostname = get_board_hostname(name, board["id"], board.get("hostname"))
 
+    # Try to discover MAC address if webserver is online and MAC not already known
+    mac_address = board.get("mac_address")
+    if not mac_address and web_online:
+        mac_address = await get_mac_address(host, ports["webserver"])
+
+    # Try to discover sensors if webserver is online
+    sensors = board.get("sensors", [])
+    if web_online:
+        try:
+            from .sensors import discover_sensors
+            discovered = await discover_sensors(host, ports["webserver"])
+            if discovered:
+                sensors = discovered
+        except Exception:
+            pass
+
     return {
         "name": name,
         "id": board["id"],
@@ -87,11 +136,16 @@ async def scan_single_board(name: str, board: dict) -> Dict[str, Any]:
         "ota_online": ota_online,
         "web_online": web_online,
         "api_info": api_info,
+        "mac_address": mac_address,
+        "sensors": sensors,
     }
 
 
 async def scan_all_boards(boards: Dict[str, dict]) -> List[Dict[str, Any]]:
-    """Scan all boards concurrently and return their statuses."""
+    """Scan all boards concurrently and return their statuses.
+
+    Also logs status transitions (online/offline) to persistent storage.
+    """
     if not boards:
         return []
 
@@ -122,6 +176,22 @@ async def scan_all_boards(boards: Dict[str, dict]) -> List[Dict[str, Any]]:
             })
         else:
             valid_results.append(result)
+
+    # Log status transitions
+    try:
+        from .status_logger import log_status_change, get_last_statuses
+
+        last_statuses = get_last_statuses()
+        for result in valid_results:
+            name = result["name"]
+            new_status = "online" if result.get("online") else "offline"
+            ota = "OK" if result.get("ota_online") else "FAIL"
+            web = "OK" if result.get("web_online") else "FAIL"
+            api = "OK" if result.get("api_info", {}).get("api_available") else "FAIL"
+            details = f"OTA:{ota} WEB:{web} API:{api}"
+            log_status_change(name, new_status, details)
+    except Exception:
+        pass  # Don't break scanning if logging fails
 
     return valid_results
 

@@ -1,8 +1,5 @@
-# Cactus Flasher - Board Registry
-# Board port calculation: ID XX -> Webserver 80XX, OTA 82XX, API 60XX
-
 boards:
   cactus-sentinel:
+    host: null
     id: 88
     type: esp32
-    host: null  # Uses default DDNS host

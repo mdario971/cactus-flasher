@@ -1,9 +1,10 @@
 """Board management router for Cactus Flasher."""
-from typing import List
+from datetime import datetime, timezone
+from typing import List, Optional
 from fastapi import APIRouter, HTTPException, status
 
 from ..config import get_boards, save_boards, get_board_ports, get_board_hostname, settings
-from ..models.schemas import BoardCreate, BoardUpdate, BoardStatus, BoardList
+from ..models.schemas import BoardCreate, BoardUpdate, BoardStatus, BoardList, SensorInfo
 from ..services.scanner import scan_board, scan_board_http, get_board_info, scan_all_boards, discover_boards_on_network
 
 router = APIRouter()
@@ -21,6 +22,19 @@ async def list_boards():
         host = board.get("host") or settings.DDNS_HOST
         hostname = get_board_hostname(name, board["id"], board.get("hostname"))
 
+        # Build sensor list from stored data
+        sensors = None
+        if board.get("sensors"):
+            sensors = [
+                SensorInfo(
+                    id=s.get("id", ""),
+                    name=s.get("name", ""),
+                    state=s.get("state"),
+                    unit=s.get("unit"),
+                )
+                for s in board["sensors"]
+            ]
+
         board_statuses.append(
             BoardStatus(
                 name=name,
@@ -32,6 +46,9 @@ async def list_boards():
                 online=False,  # Will be updated by scan
                 host=host,
                 hostname=hostname,
+                mac_address=board.get("mac_address"),
+                last_seen=board.get("last_seen"),
+                sensors=sensors,
             )
         )
 
@@ -40,12 +57,51 @@ async def list_boards():
 
 @router.get("/scan")
 async def scan_boards():
-    """Scan all boards and return their online/offline status."""
+    """Scan all boards and return their online/offline status.
+
+    Also persists discovered MAC addresses, sensors, and updates last_seen timestamps.
+    """
     boards_config = get_boards()
     boards_data = boards_config.get("boards", {})
 
     results = await scan_all_boards(boards_data)
+
+    # Persist MAC, last_seen, and sensors back to boards.yaml
+    changed = False
+    for result in results:
+        name = result.get("name")
+        if name not in boards_data:
+            continue
+
+        # Update MAC if discovered and not already set
+        if result.get("mac_address") and not boards_data[name].get("mac_address"):
+            boards_data[name]["mac_address"] = result["mac_address"]
+            changed = True
+
+        # Update last_seen if board is online
+        if result.get("online"):
+            boards_data[name]["last_seen"] = datetime.now(timezone.utc).isoformat()
+            changed = True
+
+        # Update sensors if discovered
+        if result.get("sensors"):
+            boards_data[name]["sensors"] = result["sensors"]
+            changed = True
+
+    if changed:
+        save_boards(boards_config)
+
     return {"boards": results}
+
+
+# IMPORTANT: /status-log must be BEFORE /{board_name} to avoid FastAPI matching it as a board name
+@router.get("/status-log")
+async def get_board_status_log(limit: int = 100, board: Optional[str] = None):
+    """Get board online/offline status transition log."""
+    from ..services.status_logger import get_status_log
+
+    logs = get_status_log(limit=limit, board_name=board)
+    return {"logs": logs}
 
 
 @router.get("/discover")
@@ -106,6 +162,19 @@ async def get_board(board_name: str):
     # Check if board is online
     online = await scan_board(host, ports["ota"])
 
+    # Build sensor list
+    sensors = None
+    if board.get("sensors"):
+        sensors = [
+            SensorInfo(
+                id=s.get("id", ""),
+                name=s.get("name", ""),
+                state=s.get("state"),
+                unit=s.get("unit"),
+            )
+            for s in board["sensors"]
+        ]
+
     return BoardStatus(
         name=board_name,
         id=board["id"],
@@ -116,6 +185,9 @@ async def get_board(board_name: str):
         online=online,
         host=host,
         hostname=hostname,
+        mac_address=board.get("mac_address"),
+        last_seen=board.get("last_seen"),
+        sensors=sensors,
     )
 
 
@@ -148,6 +220,8 @@ async def create_board(board: BoardCreate):
     }
     if board.api_key:
         board_data["api_key"] = board.api_key
+    if board.mac_address:
+        board_data["mac_address"] = board.mac_address
     boards_config["boards"][board.name] = board_data
     save_boards(boards_config)
 
@@ -190,6 +264,9 @@ async def update_board(board_name: str, board_update: BoardUpdate):
     if board_update.api_key is not None:
         board["api_key"] = board_update.api_key
 
+    if board_update.mac_address is not None:
+        board["mac_address"] = board_update.mac_address
+
     boards_config["boards"][board_name] = board
     save_boards(boards_config)
 
@@ -216,7 +293,10 @@ async def delete_board(board_name: str):
 
 @router.post("/{board_name}/ping")
 async def ping_board(board_name: str):
-    """Ping a specific board to check if it's online."""
+    """Ping a specific board to check if it's online.
+
+    Updates last_seen timestamp on successful ping.
+    """
     boards_config = get_boards()
     boards_data = boards_config.get("boards", {})
 
@@ -235,13 +315,32 @@ async def ping_board(board_name: str):
     web_online = await scan_board_http(host, ports["webserver"])
     api_info = await get_board_info(host, ports["api"]) if ota_online else {"api_available": False}
 
+    online = ota_online or web_online
+
+    # Update last_seen if online
+    if online:
+        boards_data[board_name]["last_seen"] = datetime.now(timezone.utc).isoformat()
+        save_boards(boards_config)
+
+    # Log status transition
+    try:
+        from ..services.status_logger import log_status_change
+        ota_str = "OK" if ota_online else "FAIL"
+        web_str = "OK" if web_online else "FAIL"
+        api_str = "OK" if api_info.get("api_available") else "FAIL"
+        new_status = "online" if online else "offline"
+        log_status_change(board_name, new_status, f"OTA:{ota_str} WEB:{web_str} API:{api_str}")
+    except Exception:
+        pass
+
     return {
         "board": board_name,
         "host": host,
         "hostname": hostname,
         "port": ports["ota"],
-        "online": ota_online or web_online,
+        "online": online,
         "ota_online": ota_online,
         "web_online": web_online,
         "api_available": api_info.get("api_available", False),
+        "mac_address": board.get("mac_address"),
     }

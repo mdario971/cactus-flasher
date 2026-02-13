@@ -114,8 +114,14 @@ async def websocket_endpoint(websocket: WebSocket):
 
 # Authentication endpoints (not in a separate router for simplicity)
 from fastapi import HTTPException, status
-from .auth import authenticate_user, create_access_token, create_user, get_current_user, Depends
-from .models.schemas import LoginRequest, LoginResponse, UserCreate
+from .auth import (
+    authenticate_user, create_access_token, create_user,
+    get_current_user, change_password, delete_user, list_users, Depends
+)
+from .models.schemas import (
+    LoginRequest, LoginResponse, UserCreate,
+    ChangePasswordRequest, UserInfo, UserListResponse
+)
 
 
 @app.post("/api/auth/login", response_model=LoginResponse)
@@ -138,10 +144,11 @@ async def login(request: LoginRequest):
 @app.post("/api/auth/register", status_code=status.HTTP_201_CREATED)
 async def register(request: UserCreate, current_user: str = Depends(get_current_user)):
     """Register a new user (requires authentication)."""
-    if not create_user(request.username, request.password):
+    success, error_msg = create_user(request.username, request.password)
+    if not success:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Username already exists",
+            detail=error_msg,
         )
     return {"message": f"User {request.username} created successfully"}
 
@@ -150,6 +157,47 @@ async def register(request: UserCreate, current_user: str = Depends(get_current_
 async def get_me(current_user: str = Depends(get_current_user)):
     """Get current user info."""
     return {"username": current_user}
+
+
+@app.get("/api/auth/users", response_model=UserListResponse)
+async def get_users(current_user: str = Depends(get_current_user)):
+    """List all users (requires authentication)."""
+    users = list_users()
+    return UserListResponse(
+        users=[UserInfo(**u) for u in users]
+    )
+
+
+@app.put("/api/auth/change-password")
+async def api_change_password(
+    request: ChangePasswordRequest,
+    current_user: str = Depends(get_current_user),
+):
+    """Change the current user's password."""
+    success, error_msg = change_password(
+        current_user, request.old_password, request.new_password
+    )
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=error_msg,
+        )
+    return {"message": "Password changed successfully"}
+
+
+@app.delete("/api/auth/users/{username}")
+async def api_delete_user(
+    username: str,
+    current_user: str = Depends(get_current_user),
+):
+    """Delete a user (requires authentication). Cannot delete self or last user."""
+    success, error_msg = delete_user(username, current_user)
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=error_msg,
+        )
+    return {"message": f"User {username} deleted successfully"}
 
 
 def get_ws_manager() -> ConnectionManager:

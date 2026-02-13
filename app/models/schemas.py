@@ -35,6 +35,21 @@ class UserCreate(BaseModel):
     password: str
 
 
+class ChangePasswordRequest(BaseModel):
+    old_password: str
+    new_password: str
+
+
+class UserInfo(BaseModel):
+    username: str
+    created_at: str
+    password_changed_at: Optional[str] = None
+
+
+class UserListResponse(BaseModel):
+    users: List[UserInfo]
+
+
 # Board schemas
 class BoardBase(BaseModel):
     name: str
@@ -43,6 +58,7 @@ class BoardBase(BaseModel):
     host: Optional[str] = None  # Override DDNS if needed
     hostname: Optional[str] = None  # Custom hostname override
     api_key: Optional[str] = None  # ESPHome native API encryption key
+    mac_address: Optional[str] = None  # Board MAC address (AA:BB:CC:DD:EE:FF)
 
 
 class BoardCreate(BoardBase):
@@ -55,6 +71,14 @@ class BoardUpdate(BaseModel):
     host: Optional[str] = None
     hostname: Optional[str] = None
     api_key: Optional[str] = None
+    mac_address: Optional[str] = None
+
+
+class SensorInfo(BaseModel):
+    id: str
+    name: str
+    state: Optional[str] = None
+    unit: Optional[str] = None
 
 
 class BoardStatus(BaseModel):
@@ -67,10 +91,20 @@ class BoardStatus(BaseModel):
     online: bool
     host: str
     hostname: str
+    mac_address: Optional[str] = None
+    last_seen: Optional[str] = None
+    sensors: Optional[List[SensorInfo]] = None
 
 
 class BoardList(BaseModel):
     boards: List[BoardStatus]
+
+
+class BoardStatusLogEntry(BaseModel):
+    timestamp: str
+    board_name: str
+    event: Literal["online", "offline"]
+    details: Optional[str] = None
 
 
 # Build schemas

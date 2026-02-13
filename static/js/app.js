@@ -4,7 +4,7 @@ class CactusFlasher {
     constructor() {
         this.token = localStorage.getItem('token');
         this.username = localStorage.getItem('username');
-        this.selectedFile = null;
+        this.selectedFiles = [];
         this.projectType = 'binary';
         this.ws = null;
         this.boards = [];
@@ -73,12 +73,12 @@ class CactusFlasher {
             e.preventDefault();
             dropZone.classList.remove('drag-over');
             if (e.dataTransfer.files.length) {
-                this.handleFile(e.dataTransfer.files[0]);
+                this.handleFiles(e.dataTransfer.files);
             }
         });
         fileInput.addEventListener('change', (e) => {
             if (e.target.files.length) {
-                this.handleFile(e.target.files[0]);
+                this.handleFiles(e.target.files);
             }
         });
 
@@ -115,6 +115,30 @@ class CactusFlasher {
 
         // Target board change
         document.getElementById('target-board').addEventListener('change', () => this.updateFlashButton());
+
+        // User management forms
+        document.getElementById('register-user-form').addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.registerUser();
+        });
+        document.getElementById('change-password-form').addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.changePassword();
+        });
+
+        // Password strength indicators
+        document.getElementById('reg-password').addEventListener('input', (e) => {
+            this.showPasswordStrength(e.target.value, 'reg-password-strength');
+        });
+        document.getElementById('cp-new-password').addEventListener('input', (e) => {
+            this.showPasswordStrength(e.target.value, 'cp-password-strength');
+        });
+
+        // Status log refresh
+        const refreshLogBtn = document.getElementById('refresh-status-log-btn');
+        if (refreshLogBtn) {
+            refreshLogBtn.addEventListener('click', () => this.loadStatusLog());
+        }
     }
 
     async api(endpoint, options = {}) {
@@ -196,6 +220,7 @@ class CactusFlasher {
         document.getElementById('current-user').textContent = this.username;
 
         this.loadBoards();
+        this.loadStatusLog();
         this.connectWebSocket();
     }
 
@@ -209,10 +234,15 @@ class CactusFlasher {
 
         if (tabName === 'boards') {
             this.loadBoards();
+            this.loadStatusLog();
         } else if (tabName === 'builds') {
             this.loadBuilds();
+        } else if (tabName === 'settings') {
+            this.loadUsers();
         }
     }
+
+    // ==================== File Handling ====================
 
     setProjectType(type) {
         this.projectType = type;
@@ -226,18 +256,22 @@ class CactusFlasher {
         switch (type) {
             case 'binary':
                 fileInput.accept = '.bin';
+                fileInput.removeAttribute('multiple');
                 fileHint.textContent = '.bin firmware file';
                 break;
             case 'esphome':
-                fileInput.accept = '.yaml,.yml';
-                fileHint.textContent = '.yaml ESPHome configuration';
+                fileInput.accept = '.yaml,.yml,.zip,.html,.css,.js';
+                fileInput.setAttribute('multiple', '');
+                fileHint.textContent = '.yaml + companion files (HTML/CSS/JS) or .zip archive';
                 break;
             case 'arduino':
-                fileInput.accept = '.ino';
-                fileHint.textContent = '.ino Arduino sketch';
+                fileInput.accept = '.ino,.h,.cpp,.c';
+                fileInput.setAttribute('multiple', '');
+                fileHint.textContent = '.ino sketch + optional .h/.cpp library files';
                 break;
             case 'platformio':
                 fileInput.accept = '.zip';
+                fileInput.removeAttribute('multiple');
                 fileHint.textContent = '.zip PlatformIO project';
                 break;
         }
@@ -245,25 +279,69 @@ class CactusFlasher {
         this.clearFile();
     }
 
-    handleFile(file) {
-        this.selectedFile = file;
-        document.getElementById('selected-file').classList.remove('hidden');
-        document.getElementById('selected-file-name').textContent = file.name;
+    handleFiles(fileList) {
+        const files = Array.from(fileList);
+
+        if (this.projectType === 'binary' || this.projectType === 'platformio') {
+            // Single file mode
+            this.selectedFiles = [files[0]];
+        } else if (this.projectType === 'esphome') {
+            // ESPHome: .yaml as main + optional companion files, or single .zip
+            if (files.length === 1 && files[0].name.endsWith('.zip')) {
+                this.selectedFiles = [files[0]];
+            } else {
+                // Merge with existing if adding more files
+                const newFiles = files.filter(f => !this.selectedFiles.some(e => e.name === f.name));
+                this.selectedFiles = [...this.selectedFiles, ...newFiles];
+            }
+        } else if (this.projectType === 'arduino') {
+            // Arduino: .ino as main + optional library files
+            const newFiles = files.filter(f => !this.selectedFiles.some(e => e.name === f.name));
+            this.selectedFiles = [...this.selectedFiles, ...newFiles];
+        }
+
+        this.renderSelectedFiles();
         this.updateFlashButton();
     }
 
+    renderSelectedFiles() {
+        const container = document.getElementById('selected-files');
+        const countEl = document.getElementById('selected-files-count');
+        const listEl = document.getElementById('selected-files-list');
+
+        if (!this.selectedFiles.length) {
+            container.classList.add('hidden');
+            return;
+        }
+
+        container.classList.remove('hidden');
+        countEl.textContent = `${this.selectedFiles.length} file${this.selectedFiles.length > 1 ? 's' : ''} selected`;
+
+        listEl.innerHTML = this.selectedFiles.map((f, i) => {
+            const sizeKB = (f.size / 1024).toFixed(1);
+            const isMain = i === 0;
+            const badge = isMain ? '<span class="text-cactus-400 text-xs ml-1">(main)</span>' : '';
+            return `<div class="flex items-center justify-between py-0.5">
+                <span class="truncate">${f.name}${badge}</span>
+                <span class="text-gray-500 ml-2 flex-shrink-0">${sizeKB} KB</span>
+            </div>`;
+        }).join('');
+    }
+
     clearFile() {
-        this.selectedFile = null;
+        this.selectedFiles = [];
         document.getElementById('file-input').value = '';
-        document.getElementById('selected-file').classList.add('hidden');
+        document.getElementById('selected-files').classList.add('hidden');
         this.updateFlashButton();
     }
 
     updateFlashButton() {
         const btn = document.getElementById('flash-btn');
         const targetBoard = document.getElementById('target-board').value;
-        btn.disabled = !this.selectedFile || !targetBoard;
+        btn.disabled = !this.selectedFiles.length || !targetBoard;
     }
+
+    // ==================== Board Management ====================
 
     async loadBoards() {
         try {
@@ -288,22 +366,85 @@ class CactusFlasher {
             return;
         }
 
-        grid.innerHTML = this.boards.map(board => `
+        grid.innerHTML = this.boards.map(board => {
+            const idStr = String(board.id).padStart(2, '0');
+            const typeStr = board.type.toUpperCase();
+
+            // Build sensor display
+            let sensorsHtml = '';
+            if (board.sensors && board.sensors.length > 0) {
+                const displayed = board.sensors.slice(0, 4);
+                const remaining = board.sensors.length - displayed.length;
+                sensorsHtml = `
+                    <div class="mt-2 pt-2 border-t border-gray-700/50">
+                        <p class="text-xs text-gray-500 mb-1">Sensors (${board.sensors.length})</p>
+                        <div class="flex flex-wrap gap-1">
+                            ${displayed.map(s =>
+                                `<span class="sensor-badge">${s.name}: ${s.state || '?'}${s.unit ? ' ' + s.unit : ''}</span>`
+                            ).join('')}
+                            ${remaining > 0 ? `<span class="text-gray-600 text-xs">+${remaining} more</span>` : ''}
+                        </div>
+                    </div>`;
+            }
+
+            // Last seen display (only for offline boards)
+            let lastSeenHtml = '';
+            if (!board.online && board.last_seen) {
+                const lastDate = new Date(board.last_seen);
+                lastSeenHtml = `<p class="text-gray-600 text-xs mt-1">Last seen: ${lastDate.toLocaleString()}</p>`;
+            }
+
+            // Tooltip content for board name hover
+            const tooltipLines = [
+                `<strong>${board.name}</strong>`,
+                `ID: ${idStr} | Type: ${typeStr}`,
+                `Host: ${board.hostname || board.host}`,
+                `WEB: :${board.webserver_port} | OTA: :${board.ota_port} | API: :${board.api_port}`,
+            ];
+            if (board.mac_address) tooltipLines.push(`MAC: ${board.mac_address}`);
+            if (board.last_seen) tooltipLines.push(`Last seen: ${new Date(board.last_seen).toLocaleString()}`);
+            if (board.sensors && board.sensors.length) tooltipLines.push(`Sensors: ${board.sensors.length}`);
+            const tooltipContent = tooltipLines.join('<br>');
+
+            return `
             <div class="board-card bg-gray-800 rounded-xl p-4 border border-gray-700">
                 <div class="flex items-center justify-between mb-3">
-                    <h3 class="font-semibold truncate">${board.name}</h3>
-                    <div class="status-indicator ${board.online ? 'online' : 'offline'}"></div>
-                </div>
-                <div class="text-sm text-gray-400 space-y-1">
-                    <p>ID: ${String(board.id).padStart(2, '0')} &middot; ${board.type.toUpperCase()}</p>
-                    ${board.hostname ? `<p class="text-gray-500 truncate" title="${board.hostname}">${board.hostname}</p>` : ''}
-                    <div class="flex flex-wrap gap-1 mt-1">
-                        <span class="port-badge web">WEB :${board.webserver_port}</span>
-                        <span class="port-badge ota">OTA :${board.ota_port}</span>
-                        <span class="port-badge api">API :${board.api_port}</span>
+                    <div class="tooltip-wrapper flex-1 min-w-0">
+                        <h3 class="font-semibold truncate">${board.name}</h3>
+                        <div class="tooltip-text tooltip-wide tooltip-bottom">${tooltipContent}</div>
+                    </div>
+                    <div class="tooltip-wrapper ml-2">
+                        <div class="status-indicator ${board.online ? 'online' : 'offline'}"></div>
+                        <span class="tooltip-text">${board.online ? 'Board is online and reachable' : 'Board is offline or unreachable'}</span>
                     </div>
                 </div>
+                <div class="text-sm text-gray-400 space-y-1">
+                    <p>ID: ${idStr} &middot; ${typeStr}</p>
+                    ${board.hostname ? `<p class="text-gray-500 truncate" title="${board.hostname}">${board.hostname}</p>` : ''}
+                    ${board.mac_address ? `<p class="text-gray-500 font-mono text-xs cursor-pointer" title="Click to copy MAC address" onclick="navigator.clipboard.writeText('${board.mac_address}').then(()=>app.showToast('MAC copied','success'))">${board.mac_address}</p>` : ''}
+                    ${lastSeenHtml}
+                    <div class="flex flex-wrap gap-1 mt-1">
+                        <div class="tooltip-wrapper">
+                            <span class="port-badge web">WEB :${board.webserver_port}</span>
+                            <span class="tooltip-text">Webserver port for browser access</span>
+                        </div>
+                        <div class="tooltip-wrapper">
+                            <span class="port-badge ota">OTA :${board.ota_port}</span>
+                            <span class="tooltip-text">OTA port for firmware updates</span>
+                        </div>
+                        <div class="tooltip-wrapper">
+                            <span class="port-badge api">API :${board.api_port}</span>
+                            <span class="tooltip-text">ESPHome Native API port</span>
+                        </div>
+                    </div>
+                    ${sensorsHtml}
+                </div>
                 <div class="flex space-x-2 mt-4">
+                    <button onclick="app.flashBoard('${board.name}')"
+                            class="flex-1 py-1 text-sm bg-cactus-600 hover:bg-cactus-700 rounded transition-colors ${!board.online ? 'opacity-50 cursor-not-allowed' : ''}"
+                            ${!board.online ? 'disabled' : ''}>
+                        Flash
+                    </button>
                     <button onclick="app.pingBoard('${board.name}')"
                             class="flex-1 py-1 text-sm bg-gray-700 hover:bg-gray-600 rounded transition-colors">
                         Ping
@@ -314,7 +455,7 @@ class CactusFlasher {
                     </button>
                 </div>
             </div>
-        `).join('');
+        `}).join('');
     }
 
     updateBoardSelector() {
@@ -325,9 +466,22 @@ class CactusFlasher {
                 const typeStr = board.type.toUpperCase();
                 const statusStr = board.online ? 'Online' : 'Offline';
                 const hostnameStr = board.hostname ? ` - ${board.hostname}` : '';
-                const label = `${board.name} [ID:${idStr}] ${typeStr}${hostnameStr} (${statusStr})`;
+                const macStr = board.mac_address ? ` | ${board.mac_address}` : '';
+                const label = `${board.name} [ID:${idStr}] ${typeStr}${hostnameStr}${macStr} (${statusStr})`;
                 return `<option value="${board.name}">${label}</option>`;
             }).join('');
+    }
+
+    // Flash board from dashboard - switches to Upload tab with board pre-selected
+    flashBoard(boardName) {
+        this.switchTab('upload');
+
+        // Pre-select the target board
+        const select = document.getElementById('target-board');
+        select.value = boardName;
+        this.updateFlashButton();
+
+        this.showToast(`Target: ${boardName} - select firmware to flash`, 'info');
     }
 
     async scanBoards() {
@@ -340,6 +494,8 @@ class CactusFlasher {
                 ota_port: b.ports.ota,
                 api_port: b.ports.api,
                 hostname: b.hostname || '',
+                mac_address: b.mac_address || null,
+                sensors: b.sensors || [],
             }));
             this.renderBoards();
             this.updateBoardSelector();
@@ -350,14 +506,19 @@ class CactusFlasher {
                 const web = b.web_online ? 'OK' : 'FAIL';
                 const api = b.api_info?.api_available ? 'OK' : 'FAIL';
                 const level = b.online ? 'success' : 'warning';
+                const mac = b.mac_address ? ` MAC:${b.mac_address}` : '';
+                const sensorCount = b.sensors && b.sensors.length ? ` Sensors:${b.sensors.length}` : '';
                 this.logBoardsConsole(
-                    `  ${b.name} [ID:${String(b.id).padStart(2,'0')}] OTA:${ota} WEB:${web} API:${api} (${b.hostname || b.host})`,
+                    `  ${b.name} [ID:${String(b.id).padStart(2,'0')}] OTA:${ota} WEB:${web} API:${api}${mac}${sensorCount} (${b.hostname || b.host})`,
                     level
                 );
             }
 
             const online = this.boards.filter(b => b.online).length;
             this.logBoardsConsole(`Scan complete: ${online}/${this.boards.length} boards online`, online > 0 ? 'success' : 'warning');
+
+            // Refresh status log after scan
+            this.loadStatusLog();
         } catch (error) {
             this.logBoardsConsole('Scan failed: ' + error.message, 'error');
         }
@@ -390,11 +551,13 @@ class CactusFlasher {
             const ota = data.ota_online ? 'OK' : 'FAIL';
             const web = data.web_online ? 'OK' : 'FAIL';
             const api = data.api_available ? 'OK' : 'FAIL';
+            const mac = data.mac_address ? ` MAC:${data.mac_address}` : '';
             this.logBoardsConsole(
-                `${boardName}: ${data.online ? 'Online' : 'Offline'} - OTA:${ota} WEB:${web} API:${api} (${data.hostname || data.host}:${data.port})`,
+                `${boardName}: ${data.online ? 'Online' : 'Offline'} - OTA:${ota} WEB:${web} API:${api}${mac} (${data.hostname || data.host}:${data.port})`,
                 data.online ? 'success' : 'warning'
             );
             await this.loadBoards();
+            this.loadStatusLog();
         } catch (error) {
             this.logBoardsConsole(`Ping failed: ${error.message}`, 'error');
         }
@@ -429,14 +592,15 @@ class CactusFlasher {
         const host = document.getElementById(`${prefix}board-host`).value || null;
         const hostname = document.getElementById(`${prefix}board-hostname`).value || null;
         const api_key = document.getElementById(`${prefix}board-api-key`).value || null;
+        const mac_address = document.getElementById(`${prefix}board-mac`).value || null;
 
         try {
             await this.api('/api/boards', {
                 method: 'POST',
-                body: JSON.stringify({ name, id, type, host, hostname, api_key }),
+                body: JSON.stringify({ name, id, type, host, hostname, api_key, mac_address }),
             });
             this.showToast(`Board "${name}" added`, 'success');
-            this.logBoardsConsole(`Board "${name}" added (ID: ${id}, Type: ${type})`, 'success');
+            this.logBoardsConsole(`Board "${name}" added (ID: ${id}, Type: ${type}${mac_address ? ', MAC: ' + mac_address : ''})`, 'success');
             document.getElementById(formId).reset();
             await this.loadBoards();
         } catch (error) {
@@ -445,21 +609,72 @@ class CactusFlasher {
         }
     }
 
+    // ==================== Status Log ====================
+
+    async loadStatusLog() {
+        try {
+            const data = await this.api('/api/boards/status-log?limit=50');
+            this.renderStatusLog(data.logs);
+        } catch (error) {
+            // Silently fail - status log is non-critical
+        }
+    }
+
+    renderStatusLog(logs) {
+        const container = document.getElementById('status-log-container');
+        if (!container) return;
+
+        if (!logs || !logs.length) {
+            container.innerHTML = '<p class="text-gray-500 text-sm">No status changes recorded yet. Run a scan to start tracking.</p>';
+            return;
+        }
+
+        container.innerHTML = `
+            <table class="w-full text-sm">
+                <thead>
+                    <tr class="border-b border-gray-700">
+                        <th class="text-left py-1.5 text-gray-400 font-medium">Time</th>
+                        <th class="text-left py-1.5 text-gray-400 font-medium">Board</th>
+                        <th class="text-left py-1.5 text-gray-400 font-medium">Status</th>
+                        <th class="text-left py-1.5 text-gray-400 font-medium hidden sm:table-cell">Details</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${logs.map(log => {
+                        const time = new Date(log.timestamp).toLocaleString();
+                        const isOnline = log.event === 'online';
+                        return `
+                            <tr class="border-b border-gray-700/30">
+                                <td class="py-1.5 text-gray-500 text-xs">${time}</td>
+                                <td class="py-1.5 font-medium">${log.board_name}</td>
+                                <td class="py-1.5">
+                                    <span class="badge badge-${isOnline ? 'online' : 'offline'}">${log.event}</span>
+                                </td>
+                                <td class="py-1.5 text-gray-500 text-xs font-mono hidden sm:table-cell">${log.details || ''}</td>
+                            </tr>
+                        `;
+                    }).join('')}
+                </tbody>
+            </table>
+        `;
+    }
+
+    // ==================== Flash / Build ====================
+
     async flashFirmware() {
         const targetBoard = document.getElementById('target-board').value;
 
-        if (!this.selectedFile || !targetBoard) {
+        if (!this.selectedFiles.length || !targetBoard) {
             this.showToast('Select a file and target board', 'error');
             return;
         }
 
+        const mainFile = this.selectedFiles[0];
+        const companionFiles = this.selectedFiles.slice(1);
+
         this.logConsole(`Starting flash to ${targetBoard}...`, 'info');
         this.showProgress(true);
         this.updateProgress(0, 'Preparing...');
-
-        const formData = new FormData();
-        formData.append('file', this.selectedFile);
-        formData.append('board_name', targetBoard);
 
         try {
             let endpoint = '/api/flash/upload';
@@ -472,17 +687,31 @@ class CactusFlasher {
 
                 switch (this.projectType) {
                     case 'esphome':
-                        buildFormData.append('yaml_file', this.selectedFile);
+                        buildFormData.append('yaml_file', mainFile);
+                        // Add companion files (HTML, CSS, JS for web_server)
+                        for (const f of companionFiles) {
+                            buildFormData.append('companion_files', f);
+                        }
                         buildFormData.append('board_type', 'esp32');
                         endpoint = '/api/build/esphome';
+                        if (companionFiles.length > 0) {
+                            this.logConsole(`  Main: ${mainFile.name} + ${companionFiles.length} companion file(s)`, 'info');
+                        }
                         break;
                     case 'arduino':
-                        buildFormData.append('sketch_file', this.selectedFile);
+                        buildFormData.append('sketch_file', mainFile);
+                        // Add library files (.h, .cpp, .c)
+                        for (const f of companionFiles) {
+                            buildFormData.append('libraries', f);
+                        }
                         buildFormData.append('board_type', 'esp32:esp32:esp32');
                         endpoint = '/api/build/arduino';
+                        if (companionFiles.length > 0) {
+                            this.logConsole(`  Sketch: ${mainFile.name} + ${companionFiles.length} library file(s)`, 'info');
+                        }
                         break;
                     case 'platformio':
-                        buildFormData.append('project_zip', this.selectedFile);
+                        buildFormData.append('project_zip', mainFile);
                         endpoint = '/api/build/platformio';
                         break;
                 }
@@ -531,6 +760,10 @@ class CactusFlasher {
                 await this.waitForFlash(flashData.flash_id);
             } else {
                 // Direct binary upload
+                const formData = new FormData();
+                formData.append('file', mainFile);
+                formData.append('board_name', targetBoard);
+
                 const response = await fetch('/api/flash/upload', {
                     method: 'POST',
                     headers: { 'Authorization': `Bearer ${this.token}` },
@@ -699,6 +932,145 @@ class CactusFlasher {
         }
     }
 
+    // ==================== User Management ====================
+
+    async loadUsers() {
+        try {
+            const data = await this.api('/api/auth/users');
+            this.renderUsers(data.users);
+        } catch (error) {
+            // Silently fail if not on settings tab
+        }
+    }
+
+    renderUsers(users) {
+        const tbody = document.getElementById('users-table-body');
+        if (!tbody) return;
+
+        tbody.innerHTML = users.map(user => {
+            const created = user.created_at ? new Date(user.created_at).toLocaleDateString() : '-';
+            const pwChanged = user.password_changed_at
+                ? new Date(user.password_changed_at).toLocaleDateString()
+                : 'Never';
+            const isSelf = user.username === this.username;
+            return `
+                <tr class="border-b border-gray-700/50">
+                    <td class="py-2">
+                        ${user.username}
+                        ${isSelf ? '<span class="text-cactus-400 text-xs ml-1">(you)</span>' : ''}
+                    </td>
+                    <td class="py-2 text-gray-400">${created}</td>
+                    <td class="py-2 text-gray-400">${pwChanged}</td>
+                    <td class="py-2 text-right">
+                        ${!isSelf ? `
+                            <button onclick="app.deleteUser('${user.username}')"
+                                    class="px-2 py-1 text-xs bg-red-900 hover:bg-red-800 rounded transition-colors">
+                                Delete
+                            </button>
+                        ` : ''}
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    }
+
+    async registerUser() {
+        const username = document.getElementById('reg-username').value;
+        const password = document.getElementById('reg-password').value;
+        const confirm = document.getElementById('reg-password-confirm').value;
+        const errorEl = document.getElementById('reg-error');
+
+        errorEl.classList.add('hidden');
+
+        if (password !== confirm) {
+            errorEl.textContent = 'Passwords do not match';
+            errorEl.classList.remove('hidden');
+            return;
+        }
+
+        try {
+            await this.api('/api/auth/register', {
+                method: 'POST',
+                body: JSON.stringify({ username, password }),
+            });
+            this.showToast(`User "${username}" registered`, 'success');
+            document.getElementById('register-user-form').reset();
+            document.getElementById('reg-password-strength').classList.add('hidden');
+            this.loadUsers();
+        } catch (error) {
+            errorEl.textContent = error.message;
+            errorEl.classList.remove('hidden');
+        }
+    }
+
+    async changePassword() {
+        const oldPassword = document.getElementById('cp-old-password').value;
+        const newPassword = document.getElementById('cp-new-password').value;
+        const confirmPassword = document.getElementById('cp-new-password-confirm').value;
+        const errorEl = document.getElementById('cp-error');
+
+        errorEl.classList.add('hidden');
+
+        if (newPassword !== confirmPassword) {
+            errorEl.textContent = 'New passwords do not match';
+            errorEl.classList.remove('hidden');
+            return;
+        }
+
+        try {
+            await this.api('/api/auth/change-password', {
+                method: 'PUT',
+                body: JSON.stringify({ old_password: oldPassword, new_password: newPassword }),
+            });
+            this.showToast('Password changed successfully', 'success');
+            document.getElementById('change-password-form').reset();
+            document.getElementById('cp-password-strength').classList.add('hidden');
+            this.loadUsers();
+        } catch (error) {
+            errorEl.textContent = error.message;
+            errorEl.classList.remove('hidden');
+        }
+    }
+
+    async deleteUser(username) {
+        if (!confirm(`Delete user "${username}"? This cannot be undone.`)) return;
+
+        try {
+            await this.api(`/api/auth/users/${username}`, { method: 'DELETE' });
+            this.showToast(`User "${username}" deleted`, 'success');
+            this.loadUsers();
+        } catch (error) {
+            this.showToast(error.message, 'error');
+        }
+    }
+
+    showPasswordStrength(password, elementId) {
+        const el = document.getElementById(elementId);
+        if (!password) {
+            el.classList.add('hidden');
+            return;
+        }
+
+        el.classList.remove('hidden');
+        const checks = [
+            { test: password.length >= 8, label: '8+ chars' },
+            { test: /[A-Z]/.test(password), label: 'Uppercase' },
+            { test: /[a-z]/.test(password), label: 'Lowercase' },
+            { test: /\d/.test(password), label: 'Digit' },
+            { test: /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>/?`~]/.test(password), label: 'Special' },
+        ];
+
+        const passed = checks.filter(c => c.test).length;
+        const color = passed <= 2 ? 'text-red-400' : passed <= 4 ? 'text-yellow-400' : 'text-cactus-400';
+
+        el.innerHTML = checks.map(c =>
+            `<span class="${c.test ? 'text-cactus-400' : 'text-gray-500'}">${c.test ? '&#10003;' : '&#10007;'} ${c.label}</span>`
+        ).join(' &middot; ');
+        el.className = `text-xs ${color}`;
+    }
+
+    // ==================== WebSocket ====================
+
     connectWebSocket() {
         const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         this.ws = new WebSocket(`${wsProtocol}//${window.location.host}/ws`);
@@ -738,6 +1110,8 @@ class CactusFlasher {
         }
     }
 
+    // ==================== UI Helpers ====================
+
     showProgress(show) {
         document.getElementById('progress-container').classList.toggle('hidden', !show);
     }
@@ -749,13 +1123,13 @@ class CactusFlasher {
     }
 
     logConsole(message, level = 'info') {
-        const console = document.getElementById('console-output');
+        const consoleEl = document.getElementById('console-output');
         const time = new Date().toLocaleTimeString();
         const line = document.createElement('p');
         line.className = `log-${level}`;
         line.textContent = `[${time}] ${message}`;
-        console.appendChild(line);
-        console.scrollTop = console.scrollHeight;
+        consoleEl.appendChild(line);
+        consoleEl.scrollTop = consoleEl.scrollHeight;
     }
 
     clearConsole() {

@@ -155,6 +155,17 @@
     color: #ef4444;
 }
 
+/* Status log badges */
+.badge-online {
+    background-color: #14532d;
+    color: #22c55e;
+}
+
+.badge-offline {
+    background-color: #7f1d1d;
+    color: #ef4444;
+}
+
 /* Port badges */
 .port-badge {
     display: inline-block;
@@ -242,6 +253,115 @@ input:focus, select:focus, textarea:focus {
 button:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+}
+
+/* ==================== Tooltip System ==================== */
+
+.tooltip-wrapper {
+    position: relative;
+    display: inline-block;
+}
+
+.tooltip-wrapper .tooltip-text {
+    visibility: hidden;
+    opacity: 0;
+    position: absolute;
+    z-index: 50;
+    bottom: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%);
+    background-color: #1f2937;
+    color: #e5e7eb;
+    border: 1px solid #374151;
+    border-radius: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.75rem;
+    line-height: 1.4;
+    white-space: nowrap;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    transition: opacity 0.2s, visibility 0.2s;
+    pointer-events: none;
+}
+
+.tooltip-wrapper .tooltip-text.tooltip-wide {
+    white-space: normal;
+    min-width: 220px;
+    max-width: 300px;
+    text-align: left;
+}
+
+.tooltip-wrapper .tooltip-text.tooltip-bottom {
+    bottom: auto;
+    top: calc(100% + 8px);
+}
+
+.tooltip-wrapper .tooltip-text.tooltip-bottom::after {
+    top: auto;
+    bottom: 100%;
+    border-top-color: transparent;
+    border-bottom-color: #374151;
+}
+
+.tooltip-wrapper:hover .tooltip-text {
+    visibility: visible;
+    opacity: 1;
+}
+
+/* Arrow pointing down (for top tooltip) */
+.tooltip-wrapper .tooltip-text::after {
+    content: '';
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    border: 5px solid transparent;
+    border-top-color: #374151;
+}
+
+/* Guide section styles */
+.guide-section h3 {
+    color: #4ade80;
+    margin-bottom: 0.5rem;
+}
+
+.guide-step {
+    counter-increment: step-counter;
+    position: relative;
+    padding-left: 2.5rem;
+}
+
+.guide-step::before {
+    content: counter(step-counter);
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 1.75rem;
+    height: 1.75rem;
+    background-color: #14532d;
+    color: #22c55e;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.875rem;
+    font-weight: 600;
+}
+
+.guide-steps {
+    counter-reset: step-counter;
+}
+
+/* Sensor badge */
+.sensor-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.125rem 0.5rem;
+    border-radius: 0.25rem;
+    font-size: 0.65rem;
+    background-color: rgba(139, 92, 246, 0.15);
+    color: #a78bfa;
+    border: 1px solid rgba(139, 92, 246, 0.25);
 }
 
 /* Responsive adjustments */

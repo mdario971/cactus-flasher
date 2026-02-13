@@ -1,6 +1,7 @@
 """Build router for Cactus Flasher - handles firmware compilation."""
 import uuid
 import shutil
+import zipfile
 from pathlib import Path
 from typing import Optional, List
 from fastapi import APIRouter, HTTPException, status, UploadFile, File, Form, BackgroundTasks
@@ -20,14 +21,24 @@ build_operations: dict[str, BuildStatus] = {}
 @router.post("/esphome")
 async def build_esphome(
     yaml_file: UploadFile = File(...),
+    companion_files: Optional[List[UploadFile]] = File(None),
     board_type: str = Form("esp32"),
     background_tasks: BackgroundTasks = BackgroundTasks(),
 ):
-    """Build ESPHome firmware from YAML configuration."""
-    if not yaml_file.filename.endswith((".yaml", ".yml")):
+    """Build ESPHome firmware from YAML configuration.
+
+    Supports:
+    - Single .yaml/.yml file
+    - .yaml + companion files (HTML, CSS, JS for web_server component)
+    - .zip archive containing YAML + companion files
+    """
+    is_zip = yaml_file.filename.endswith(".zip")
+    is_yaml = yaml_file.filename.endswith((".yaml", ".yml"))
+
+    if not is_yaml and not is_zip:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Only YAML files are supported for ESPHome builds",
+            detail="ESPHome builds require a .yaml/.yml file or a .zip archive containing one",
         )
 
     # Create build directory
@@ -35,11 +46,39 @@ async def build_esphome(
     build_dir = UPLOADS_DIR / build_id
     build_dir.mkdir(exist_ok=True)
 
-    # Save YAML file
-    yaml_path = build_dir / yaml_file.filename
-    content = await yaml_file.read()
-    with open(yaml_path, "wb") as f:
-        f.write(content)
+    if is_zip:
+        # Extract zip and find YAML file
+        zip_path = build_dir / yaml_file.filename
+        content = await yaml_file.read()
+        with open(zip_path, "wb") as f:
+            f.write(content)
+
+        with zipfile.ZipFile(zip_path, "r") as z:
+            z.extractall(build_dir)
+
+        # Find the YAML file in extracted contents
+        yaml_files = list(build_dir.glob("**/*.yaml")) + list(build_dir.glob("**/*.yml"))
+        yaml_files = [f for f in yaml_files if not f.name.startswith(".")]
+        if not yaml_files:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No .yaml/.yml file found in the uploaded zip archive",
+            )
+        yaml_path = yaml_files[0]
+    else:
+        # Save YAML file
+        yaml_path = build_dir / yaml_file.filename
+        content = await yaml_file.read()
+        with open(yaml_path, "wb") as f:
+            f.write(content)
+
+        # Save companion files (HTML, CSS, JS, etc.) alongside the YAML
+        if companion_files:
+            for comp_file in companion_files:
+                comp_path = build_dir / comp_file.filename
+                comp_content = await comp_file.read()
+                with open(comp_path, "wb") as f:
+                    f.write(comp_content)
 
     # Create build status
     build_operations[build_id] = BuildStatus(
@@ -196,7 +235,6 @@ async def build_platformio(
         f.write(content)
 
     # Extract zip
-    import zipfile
     with zipfile.ZipFile(zip_path, "r") as z:
         z.extractall(build_dir)
 
