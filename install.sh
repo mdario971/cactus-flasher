@@ -40,7 +40,18 @@ fi
 print_header
 
 # ─── Installation directory ───────────────────────────────────
-INSTALL_DIR="$(pwd)/cactus-flasher"
+# If running from inside the repo (install.sh exists here), use current dir
+# Otherwise, clone into a new subdirectory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "$SCRIPT_DIR/app/main.py" ] && [ -f "$SCRIPT_DIR/requirements.txt" ]; then
+    # Running from inside the repo
+    INSTALL_DIR="$SCRIPT_DIR"
+    ALREADY_CLONED=true
+else
+    # Running from parent directory — will clone repo
+    INSTALL_DIR="$(pwd)/cactus-flasher"
+    ALREADY_CLONED=false
+fi
 
 echo -e "${BOLD}Installation directory:${NC} ${CYAN}$INSTALL_DIR${NC}"
 echo ""
@@ -69,7 +80,7 @@ if ! [[ "$APP_USER" =~ ^[a-z_][a-z0-9_-]*$ ]]; then
 fi
 
 APP_DIR="$INSTALL_DIR"
-BACKUP_DIR="$(pwd)/cactus-flasher-backups"
+BACKUP_DIR="$(dirname "$INSTALL_DIR")/cactus-flasher-backups"
 SERVICE_NAME="cactus-flasher"
 
 echo ""
@@ -108,12 +119,24 @@ log_step "Step 3/8: Repository"
 
 REPO_URL="https://github.com/mdario971/cactus-flasher.git"
 
-if [ -d "$APP_DIR/.git" ]; then
+if [ "$ALREADY_CLONED" = true ]; then
+    # Already running from inside the repo
+    if [ -d "$APP_DIR/.git" ]; then
+        log_info "Running from repo directory, pulling latest..."
+        cd "$APP_DIR"
+        git fetch origin 2>/dev/null || true
+        git checkout main 2>/dev/null || true
+        git pull origin main 2>/dev/null || true
+        log_ok "Updated to latest main"
+    else
+        log_ok "Using current directory (not a git repo — skipping pull)"
+    fi
+elif [ -d "$APP_DIR/.git" ]; then
     log_info "Repository already exists, pulling latest..."
     cd "$APP_DIR"
-    sudo -u "$APP_USER" git fetch origin 2>/dev/null || git fetch origin
-    sudo -u "$APP_USER" git checkout main 2>/dev/null || git checkout main
-    sudo -u "$APP_USER" git pull origin main 2>/dev/null || git pull origin main
+    git fetch origin 2>/dev/null || true
+    git checkout main 2>/dev/null || true
+    git pull origin main 2>/dev/null || true
     log_ok "Updated to latest main"
 else
     if [ -d "$APP_DIR" ]; then
