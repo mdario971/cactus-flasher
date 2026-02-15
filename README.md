@@ -85,7 +85,8 @@ cactus-flasher/
 │   ├── boards.yaml          # Board registry (name, id, type, host, mac)
 │   ├── credentials.yaml     # User credentials — bcrypt hashes (gitignored)
 │   └── board_status_log.yaml# Online/offline transition log (auto-created)
-├── cactus-flasher.service   # Systemd unit file
+├── install.sh               # Interactive installer (run on VPS)
+├── cactus-flasher.service   # Systemd unit file (template)
 ├── deploy.sh                # Deploy/rollback script
 ├── Dockerfile               # Python 3.13-slim image
 ├── docker-compose.yml       # Local development (hot reload)
@@ -99,103 +100,124 @@ cactus-flasher/
 
 ## 2. VPS Debian — Fresh Installation
 
-These steps install Cactus Flasher on a clean Debian VPS from scratch.
+### Quick Install (Recommended)
 
-### 2.1 System Prerequisites
+The interactive installer handles everything — user creation, packages, venv, service, permissions, and optional Nginx + SSL. Run as root on any Debian 12 VPS:
+
+```bash
+# Install in any directory you want (e.g., /opt, /home/youruser, /srv)
+cd /opt
+git clone https://github.com/mdario971/cactus-flasher.git
+cd cactus-flasher
+bash install.sh
+```
+
+> If the repo is private, use: `git clone https://<TOKEN>@github.com/mdario971/cactus-flasher.git`
+
+The installer will ask you:
+
+1. **Which user** should run the app (creates the user if it doesn't exist)
+2. **Domain name** for Nginx + SSL (optional, can skip)
+
+It automatically:
+- Installs system packages (python3, nginx, certbot)
+- Creates Python venv and installs dependencies
+- Generates `.env` with a random `SECRET_KEY`
+- Generates a customized systemd service file with the correct user and paths
+- Writes a customized `deploy.sh` that auto-detects its own location
+- Sets all file permissions correctly
+- Starts the service and verifies it's healthy
+
+```
+  Installation summary:
+    User:          myuser
+    App directory:  /opt/cactus-flasher
+    Backups:        /opt/cactus-flasher-backups
+    Service:        cactus-flasher
+```
+
+After the installer finishes, log in at `http://<your-ip>:8000` with the [default credentials](#9-default-login--first-steps).
+
+### Manual Installation
+
+If you prefer to install manually step by step:
+
+<details>
+<summary>Click to expand manual installation steps</summary>
+
+#### 2.1 System Prerequisites
 
 ```bash
 sudo apt update && sudo apt upgrade -y
 sudo apt install -y python3 python3-venv python3-pip git nginx certbot python3-certbot-nginx
 ```
 
-### 2.2 Clone the Repository
+#### 2.2 Clone and Setup
 
 ```bash
-cd /home/debian
+# Choose your install location
+cd /opt  # or /home/youruser, /srv, etc.
 git clone https://github.com/mdario971/cactus-flasher.git
 cd cactus-flasher
-```
 
-> If the repo is private, use a GitHub personal access token or SSH key.
-
-### 2.3 Create Python Virtual Environment
-
-```bash
+# Create venv
 python3 -m venv venv
 source venv/bin/activate
 pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-### 2.4 Configure Environment Variables
+#### 2.3 Configure Environment
 
 ```bash
 cp .env.example .env
-```
 
-Edit `.env` and set a strong `SECRET_KEY`:
-
-```bash
-# Generate a random secret key
+# Generate a random SECRET_KEY
 python3 -c "import secrets; print(secrets.token_urlsafe(48))"
+# Edit .env and paste the generated value
+nano .env
 ```
 
-Paste the generated value into `.env`:
-
-```env
-SECRET_KEY=<your-generated-secret-key>
-DDNS_HOST=esp32gb.ddns.net
-```
-
-### 2.5 Create Runtime Directories
+#### 2.4 Create Directories & Set Permissions
 
 ```bash
-mkdir -p config uploads builds /home/debian/backups
-```
+mkdir -p config uploads builds
 
-### 2.6 Set File Permissions
-
-```bash
-# Ensure debian user owns everything
-sudo chown -R debian:debian /home/debian/cactus-flasher
-
-# Application files
-chmod -R 755 app/ static/
-chmod 644 requirements.txt
-
-# Writable runtime directories
-chmod 755 config/ uploads/ builds/
-
-# Sensitive files
+# Replace 'youruser' with the actual user
+sudo chown -R youruser:youruser /opt/cactus-flasher
 chmod 600 .env
-chmod 755 deploy.sh
-
-# credentials.yaml will be auto-created on first run
-# Once created, lock it down:
-# chmod 600 config/credentials.yaml
+chmod 755 deploy.sh install.sh
 ```
 
-### 2.7 Install Systemd Service
+#### 2.5 Install Systemd Service
+
+The included `cactus-flasher.service` has hardcoded paths for `/home/debian`. You need to edit it for your setup:
 
 ```bash
-sudo cp cactus-flasher.service /etc/systemd/system/
+# Edit the service file with YOUR user and paths
+sudo nano /etc/systemd/system/cactus-flasher.service
+```
+
+```ini
+[Service]
+User=youruser
+Group=youruser
+WorkingDirectory=/opt/cactus-flasher
+EnvironmentFile=/opt/cactus-flasher/.env
+ExecStart=/opt/cactus-flasher/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
+ReadWritePaths=/opt/cactus-flasher/config /opt/cactus-flasher/uploads /opt/cactus-flasher/builds
+```
+
+```bash
 sudo systemctl daemon-reload
 sudo systemctl enable cactus-flasher
 sudo systemctl start cactus-flasher
 ```
 
-Verify it's running:
-
-```bash
-sudo systemctl status cactus-flasher
-curl -s http://127.0.0.1:8000/api/auth/me | head
-```
-
-### 2.8 Configure Nginx Reverse Proxy
-
-Create `/etc/nginx/sites-available/cactus-flasher`:
+#### 2.6 Configure Nginx + SSL
 
 ```nginx
+# /etc/nginx/sites-available/cactus-flasher
 server {
     listen 80;
     server_name flasher.yourdomain.com;
@@ -213,31 +235,13 @@ server {
 }
 ```
 
-Enable and get SSL:
-
 ```bash
 sudo ln -s /etc/nginx/sites-available/cactus-flasher /etc/nginx/sites-enabled/
-sudo nginx -t
-sudo systemctl reload nginx
-
-# Get SSL certificate (replace with your domain)
+sudo nginx -t && sudo systemctl reload nginx
 sudo certbot --nginx -d flasher.yourdomain.com
 ```
 
-### 2.9 Verify Installation
-
-```bash
-# Check service is running
-sudo systemctl status cactus-flasher
-
-# Check app responds
-curl -s https://flasher.yourdomain.com/ | head -5
-
-# Check default admin was created
-ls -la config/credentials.yaml
-```
-
-Open `https://flasher.yourdomain.com` in your browser and log in with the [default credentials](#9-default-login--first-steps).
+</details>
 
 ---
 
@@ -247,7 +251,9 @@ When the VPS already has Cactus Flasher installed, use `deploy.sh` to safely upd
 
 ### How deploy.sh Works
 
-1. Creates a timestamped backup tarball in `/home/debian/backups/`
+The deploy script **auto-detects its own location** — no hardcoded paths. It works regardless of where you installed.
+
+1. Creates a timestamped backup tarball in `<parent-dir>/cactus-flasher-backups/`
 2. Pulls the requested version from git (latest main, specific tag, or previous tag)
 3. Installs/updates pip dependencies
 4. Restarts the systemd service
@@ -258,7 +264,8 @@ The backup **excludes** `venv/`, `__pycache__/`, `uploads/`, and `builds/` (larg
 ### Usage
 
 ```bash
-cd /home/debian/cactus-flasher
+# Go to wherever you installed it
+cd /opt/cactus-flasher    # or /home/youruser/cactus-flasher, etc.
 
 # Deploy latest from main branch
 bash deploy.sh
@@ -272,12 +279,12 @@ bash deploy.sh rollback
 
 ### Manual Backup (Extra Safety)
 
-Before a major update, you can create a manual backup:
-
 ```bash
-tar -czf /home/debian/backups/cactus-flasher-manual-$(date +%Y%m%d-%H%M%S).tar.gz \
+# deploy.sh creates automatic backups, but for extra safety:
+APP_DIR=/opt/cactus-flasher  # adjust to your path
+tar -czf "${APP_DIR}-manual-backup-$(date +%Y%m%d-%H%M%S).tar.gz" \
     --exclude='venv' --exclude='__pycache__' --exclude='.claude' \
-    -C /home/debian cactus-flasher
+    -C "$(dirname $APP_DIR)" "$(basename $APP_DIR)"
 ```
 
 ### Restoring from Backup
@@ -289,25 +296,26 @@ If `deploy.sh rollback` isn't enough (e.g., you need to restore config files):
 sudo systemctl stop cactus-flasher
 
 # List available backups
-ls -lt /home/debian/backups/
+ls -lt /opt/cactus-flasher-backups/   # adjust to your path
 
 # Restore a specific backup
-cd /home/debian
-tar -xzf /home/debian/backups/pre-deploy-20260215-143000.tar.gz
+cd /opt
+tar -xzf /opt/cactus-flasher-backups/pre-deploy-20260215-143000.tar.gz
 
 # Restart the service
 sudo systemctl start cactus-flasher
 ```
 
-### Updating the Systemd Service File
+### Re-running the Installer After Updates
 
-If `cactus-flasher.service` changed in the update:
+If the systemd service file needs updating after a `git pull`, re-run the installer:
 
 ```bash
-sudo cp /home/debian/cactus-flasher/cactus-flasher.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl restart cactus-flasher
+cd /opt/cactus-flasher
+sudo bash install.sh
 ```
+
+The installer detects existing installations — it will pull the latest code, update dependencies, and regenerate the service file with the correct paths, while preserving your `.env` and config files.
 
 ---
 
@@ -328,7 +336,8 @@ These files come from the git repository and are replaced on every update:
 | `Dockerfile` | Docker image definition |
 | `docker-compose.yml` | Local dev Docker config |
 | `docker-compose.prod.yml` | Production Docker config |
-| `cactus-flasher.service` | Systemd unit file (must be copied to `/etc/systemd/system/`) |
+| `install.sh` | Interactive installer script |
+| `cactus-flasher.service` | Systemd unit file (template — `install.sh` generates the actual one) |
 | `.env.example` | Environment variable template |
 | `config/boards.yaml` | Board registry (in repo as seed data) |
 | `CLAUDE.md` | AI assistant memory |
@@ -349,21 +358,24 @@ These files are **gitignored** and survive deployments:
 ### File Permissions Reference
 
 ```
-/home/debian/cactus-flasher/          # 755 debian:debian
-├── app/                               # 755 — application code
-├── static/                            # 755 — frontend files
-├── config/                            # 755 — YAML configs
-│   ├── boards.yaml                    # 644 — board registry
-│   ├── credentials.yaml               # 600 — user passwords (sensitive)
-│   └── board_status_log.yaml          # 644 — status log
-├── uploads/                           # 755 — firmware uploads
-├── builds/                            # 755 — build artifacts
-├── venv/                              # 755 — Python venv
-├── .env                               # 600 — secrets (sensitive)
-├── requirements.txt                   # 644 — dependencies
-├── deploy.sh                          # 755 — deploy script (executable)
-└── cactus-flasher.service             # 644 — systemd unit
+<install-dir>/cactus-flasher/          # 755 <user>:<user>
+├── app/                                # 755 — application code
+├── static/                             # 755 — frontend files
+├── config/                             # 755 — YAML configs
+│   ├── boards.yaml                     # 644 — board registry
+│   ├── credentials.yaml                # 600 — user passwords (sensitive)
+│   └── board_status_log.yaml           # 644 — status log
+├── uploads/                            # 755 — firmware uploads
+├── builds/                             # 755 — build artifacts
+├── venv/                               # 755 — Python venv
+├── .env                                # 600 — secrets (sensitive)
+├── requirements.txt                    # 644 — dependencies
+├── install.sh                          # 755 — installer (executable)
+├── deploy.sh                           # 755 — deploy script (executable)
+└── cactus-flasher.service              # 644 — systemd unit (template)
 ```
+
+> The `install.sh` script sets all permissions automatically. The paths above use `<install-dir>` because the app can be installed anywhere — `/opt`, `/home/youruser`, `/srv`, etc.
 
 > **Note on `config/boards.yaml`**: The repo ships a seed file with one example board. On a running VPS, this file will contain your actual board registry. A `git pull` will attempt to overwrite it. The `deploy.sh` script creates a backup first, but if you want extra safety, back up `config/boards.yaml` manually before deploying, or add it to `.gitignore` on the VPS.
 
@@ -706,14 +718,15 @@ sudo journalctl -u cactus-flasher -n 50
 # Common causes:
 # - Missing .env file → cp .env.example .env
 # - Missing venv → python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt
-# - Wrong permissions → sudo chown -R debian:debian /home/debian/cactus-flasher
+# - Wrong permissions → sudo chown -R youruser:youruser /path/to/cactus-flasher
+# - Or just re-run: sudo bash install.sh
 ```
 
 ### Permission Denied Errors
 
 ```bash
-# Fix ownership
-sudo chown -R debian:debian /home/debian/cactus-flasher
+# Fix ownership (replace youruser and path)
+sudo chown -R youruser:youruser /path/to/cactus-flasher
 
 # Fix credentials file permissions
 chmod 600 config/credentials.yaml
@@ -752,9 +765,9 @@ bash deploy.sh rollback
 
 # Option 2: Restore from backup tarball
 sudo systemctl stop cactus-flasher
-ls -lt /home/debian/backups/     # Find the backup you want
-cd /home/debian
-tar -xzf /home/debian/backups/pre-deploy-YYYYMMDD-HHMMSS.tar.gz
+ls -lt /path/to/cactus-flasher-backups/   # Find the backup you want
+cd /path/to
+tar -xzf /path/to/cactus-flasher-backups/pre-deploy-YYYYMMDD-HHMMSS.tar.gz
 sudo systemctl start cactus-flasher
 ```
 

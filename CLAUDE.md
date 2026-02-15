@@ -2,10 +2,11 @@
 
 ## Project Overview
 **Cactus Flasher** is an ESP32 Web Flasher application for OTA firmware updates.
-- **Location**: `/home/debian/cactus-flasher`
+- **Location**: Configurable — installed via `install.sh` in any directory
 - **Framework**: FastAPI (Python 3.13) + Vanilla JS frontend
-- **VPS**: Debian, user `debian`, protected by Cactus Sentinel (fail2ban)
-- **Backup**: `/home/debian/backups/cactus-flasher-backup-20260211-134223.tar.gz`
+- **VPS**: Debian 12, user configurable (set during install), protected by Cactus Sentinel (fail2ban)
+- **Installer**: `install.sh` — interactive, asks for user, auto-configures everything
+- **Deploy**: `deploy.sh` — auto-detects paths, no hardcoded values
 - **Status**: Auth flow WORKING and TESTED as of 2026-02-11
 
 ## CRITICAL - Do NOT Change These (Working Code)
@@ -64,8 +65,15 @@ cactus-flasher/
     css/style.css        # Custom styles (cards, badges, animations, tooltips)
     js/app.js            # CactusFlasher class (auth, boards, build, flash, status log, sensors)
   venv/                  # Python virtual environment (Python 3.13)
+  install.sh             # Interactive installer (creates user, venv, service, nginx)
+  deploy.sh              # Deploy/rollback script (auto-detects paths)
+  cactus-flasher.service # Systemd unit template (install.sh generates the real one)
+  Dockerfile             # Python 3.13-slim for Docker
+  docker-compose.yml     # Local dev (hot reload)
+  docker-compose.prod.yml # Production Docker (optional)
+  .env.example           # Environment variable template
   requirements.txt       # Dependencies
-  README.md              # Full documentation
+  README.md              # Full documentation + installation guide
   CLAUDE.md              # THIS FILE
 ```
 
@@ -145,26 +153,33 @@ VPS (cactus-flasher on port 8000)
 16. **Status log uses YAML file** — `config/board_status_log.yaml` tracks online/offline transitions. Only logs when status changes. Auto-trims at 500 entries.
 17. **MAC address auto-discovery** — during scan, if `web_online` and no MAC stored, tries to extract from ESPHome web page via regex.
 18. **Frontend has 5 tabs** — Boards, Upload & Flash, Builds, Settings, Guide. The Guide tab is static HTML documentation.
+19. **`install.sh` generates the systemd service file dynamically** — the `cactus-flasher.service` in the repo is a template. The installer writes the real one to `/etc/systemd/system/` with the correct user and paths.
+20. **`deploy.sh` auto-detects paths** — uses `BASH_SOURCE` to find itself, `stat` to find the owner. No hardcoded paths.
+21. **App can be installed in any directory** — `/opt`, `/home/user`, `/srv`, etc. The installer and deploy script adapt automatically.
 
 ## Running the App
 ```bash
-cd /home/debian/cactus-flasher
+cd /path/to/cactus-flasher
 source venv/bin/activate
 uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
 ## Development Commands
 ```bash
-# Activate venv
-source /home/debian/cactus-flasher/venv/bin/activate
+# Activate venv (from project root)
+source venv/bin/activate
 
 # Install deps
-pip install -r /home/debian/cactus-flasher/requirements.txt
+pip install -r requirements.txt
 
-# Create backup
-tar -czf /home/debian/backups/cactus-flasher-backup-$(date +%Y%m%d-%H%M%S).tar.gz \
-  --exclude='venv' --exclude='__pycache__' --exclude='.claude' \
-  -C /home/debian cactus-flasher
+# Fresh install on VPS (as root)
+bash install.sh
+
+# Deploy update (auto-detects paths)
+bash deploy.sh
+
+# Docker local dev
+docker compose up --build
 ```
 
 ## TODO / Future Work
