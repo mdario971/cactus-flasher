@@ -258,7 +258,7 @@ else
 fi
 
 # ─── Step 8: Write customized deploy.sh ──────────────────────
-log_step "Step 8/8: Configuring deploy script"
+log_step "Step 8/9: Configuring deploy script"
 
 cat > "$APP_DIR/deploy.sh" << 'DEPLOYEOF'
 #!/usr/bin/env bash
@@ -340,6 +340,18 @@ chown "$APP_USER:$APP_USER" "$APP_DIR/deploy.sh"
 chmod 755 "$APP_DIR/deploy.sh"
 log_ok "deploy.sh configured (auto-detects paths)"
 
+# ─── Step 9: Install vps-portmap ──────────────────────────────
+log_step "Step 9/9: Installing vps-portmap"
+
+if [ -f "$APP_DIR/tools/vps-portmap.sh" ]; then
+    cp "$APP_DIR/tools/vps-portmap.sh" /usr/local/bin/vps-portmap
+    chmod 755 /usr/local/bin/vps-portmap
+    log_ok "Installed vps-portmap → /usr/local/bin/vps-portmap"
+    log_info "Run 'vps-portmap' to scan all ports and services"
+else
+    log_warn "tools/vps-portmap.sh not found — skipping"
+fi
+
 # ─── Summary ─────────────────────────────────────────────────
 echo ""
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -409,6 +421,13 @@ NGINXEOF
 
     echo ""
     echo -e "  ${BOLD}Public URL:${NC} ${GREEN}https://$DOMAIN${NC}"
+fi
+
+# ─── Run vps-portmap to generate initial registry ────────────
+if command -v vps-portmap &>/dev/null; then
+    echo ""
+    log_step "Generating VPS port registry"
+    vps-portmap || true
 fi
 
 echo ""
