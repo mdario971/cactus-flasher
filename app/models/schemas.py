@@ -59,6 +59,8 @@ class BoardBase(BaseModel):
     hostname: Optional[str] = None  # Custom hostname override
     api_key: Optional[str] = None  # ESPHome native API encryption key
     mac_address: Optional[str] = None  # Board MAC address (AA:BB:CC:DD:EE:FF)
+    web_username: Optional[str] = None  # ESPHome web_server HTTP Basic Auth username
+    web_password: Optional[str] = None  # ESPHome web_server HTTP Basic Auth password
 
 
 class BoardCreate(BoardBase):
@@ -72,6 +74,8 @@ class BoardUpdate(BaseModel):
     hostname: Optional[str] = None
     api_key: Optional[str] = None
     mac_address: Optional[str] = None
+    web_username: Optional[str] = None
+    web_password: Optional[str] = None
 
 
 class SensorInfo(BaseModel):

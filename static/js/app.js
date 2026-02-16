@@ -8,6 +8,8 @@ class CactusFlasher {
         this.projectType = 'binary';
         this.ws = null;
         this.boards = [];
+        this.liveLogSource = null;
+        this.liveLogBoardName = null;
 
         this.init();
     }
@@ -138,6 +140,12 @@ class CactusFlasher {
         const refreshLogBtn = document.getElementById('refresh-status-log-btn');
         if (refreshLogBtn) {
             refreshLogBtn.addEventListener('click', () => this.loadStatusLog());
+        }
+
+        // Live logs stop button
+        const stopLogsBtn = document.getElementById('stop-live-logs-btn');
+        if (stopLogsBtn) {
+            stopLogsBtn.addEventListener('click', () => this.stopBoardLogs());
         }
     }
 
@@ -445,6 +453,12 @@ class CactusFlasher {
                             ${!board.online ? 'disabled' : ''}>
                         Flash
                     </button>
+                    <button onclick="app.streamBoardLogs('${board.name}')"
+                            class="px-3 py-1 text-sm bg-blue-700 hover:bg-blue-600 rounded transition-colors ${!board.online ? 'opacity-50 cursor-not-allowed' : ''}"
+                            ${!board.online ? 'disabled' : ''}
+                            title="Stream live logs from board">
+                        Logs
+                    </button>
                     <button onclick="app.pingBoard('${board.name}')"
                             class="flex-1 py-1 text-sm bg-gray-700 hover:bg-gray-600 rounded transition-colors">
                         Ping
@@ -575,6 +589,108 @@ class CactusFlasher {
         }
     }
 
+    // ==================== Live Board Logs ====================
+
+    streamBoardLogs(boardName) {
+        // Stop existing stream if any
+        this.stopBoardLogs();
+
+        const panel = document.getElementById('live-logs-panel');
+        const output = document.getElementById('live-logs-output');
+        const nameEl = document.getElementById('live-logs-board-name');
+
+        panel.classList.remove('hidden');
+        nameEl.textContent = boardName;
+        output.innerHTML = '<p class="text-gray-500">Connecting...</p>';
+
+        this.liveLogBoardName = boardName;
+
+        const url = `/api/boards/${encodeURIComponent(boardName)}/logs`;
+        this.liveLogSource = new EventSource(url);
+
+        this.liveLogSource.onopen = () => {
+            output.innerHTML = '';
+            this.logLivePanel('Connected, waiting for events...', 'info');
+        };
+
+        this.liveLogSource.onmessage = (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                const id = data.id || '';
+                const state = data.state !== undefined ? data.state : (data.value || '');
+                // Color code by entity type
+                let level = 'sensor';
+                if (id.startsWith('switch-') || id.startsWith('light-') || id.startsWith('fan-')) {
+                    level = 'switch';
+                } else if (id.startsWith('binary_sensor-')) {
+                    level = 'binary';
+                } else if (id.startsWith('text_sensor-')) {
+                    level = 'text';
+                }
+                this.logLivePanel(`${id}: ${state}`, level);
+            } catch (e) {
+                // Raw text event
+                this.logLivePanel(event.data, 'info');
+            }
+        };
+
+        this.liveLogSource.addEventListener('state', (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                const id = data.id || '?';
+                const state = data.state !== undefined ? data.state : (data.value || '');
+                this.logLivePanel(`${id}: ${state}`, 'sensor');
+            } catch (e) {
+                this.logLivePanel(event.data, 'info');
+            }
+        });
+
+        this.liveLogSource.addEventListener('log', (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                const msg = data.message || event.data;
+                const level = data.level || 'info';
+                this.logLivePanel(msg, level === 'ERROR' ? 'error' : level === 'WARNING' ? 'warning' : 'info');
+            } catch (e) {
+                this.logLivePanel(event.data, 'info');
+            }
+        });
+
+        this.liveLogSource.onerror = () => {
+            this.logLivePanel('Connection lost. Retrying...', 'error');
+        };
+
+        this.logBoardsConsole(`Streaming logs from ${boardName}...`, 'info');
+    }
+
+    stopBoardLogs() {
+        if (this.liveLogSource) {
+            this.liveLogSource.close();
+            this.liveLogSource = null;
+        }
+        if (this.liveLogBoardName) {
+            this.logBoardsConsole(`Stopped log stream from ${this.liveLogBoardName}`, 'info');
+            this.liveLogBoardName = null;
+        }
+        const panel = document.getElementById('live-logs-panel');
+        if (panel) panel.classList.add('hidden');
+    }
+
+    logLivePanel(message, level = 'info') {
+        const output = document.getElementById('live-logs-output');
+        if (!output) return;
+        const time = new Date().toLocaleTimeString();
+        const line = document.createElement('p');
+        line.className = `log-live-${level}`;
+        line.textContent = `[${time}] ${message}`;
+        output.appendChild(line);
+        // Keep max 500 lines
+        while (output.children.length > 500) {
+            output.removeChild(output.firstChild);
+        }
+        output.scrollTop = output.scrollHeight;
+    }
+
     showAddBoardModal() {
         document.getElementById('add-board-modal').classList.remove('hidden');
     }
@@ -593,11 +709,13 @@ class CactusFlasher {
         const hostname = document.getElementById(`${prefix}board-hostname`).value || null;
         const api_key = document.getElementById(`${prefix}board-api-key`).value || null;
         const mac_address = document.getElementById(`${prefix}board-mac`).value || null;
+        const web_username = document.getElementById(`${prefix}board-web-username`).value || null;
+        const web_password = document.getElementById(`${prefix}board-web-password`).value || null;
 
         try {
             await this.api('/api/boards', {
                 method: 'POST',
-                body: JSON.stringify({ name, id, type, host, hostname, api_key, mac_address }),
+                body: JSON.stringify({ name, id, type, host, hostname, api_key, mac_address, web_username, web_password }),
             });
             this.showToast(`Board "${name}" added`, 'success');
             this.logBoardsConsole(`Board "${name}" added (ID: ${id}, Type: ${type}${mac_address ? ', MAC: ' + mac_address : ''})`, 'success');

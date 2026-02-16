@@ -351,6 +351,45 @@ button:disabled {
     counter-reset: step-counter;
 }
 
+/* Live logs panel */
+.live-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background-color: #ef4444;
+    margin-right: 4px;
+    animation: pulse 1s infinite;
+}
+
+.log-live-sensor {
+    color: #67e8f9;
+}
+
+.log-live-switch {
+    color: #4ade80;
+}
+
+.log-live-binary {
+    color: #fbbf24;
+}
+
+.log-live-text {
+    color: #a78bfa;
+}
+
+.log-live-info {
+    color: #60a5fa;
+}
+
+.log-live-error {
+    color: #ef4444;
+}
+
+.log-live-warning {
+    color: #f59e0b;
+}
+
 /* Sensor badge */
 .sensor-badge {
     display: inline-flex;

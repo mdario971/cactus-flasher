@@ -9,22 +9,28 @@ import aiohttp
 
 
 async def discover_sensors(
-    host: str, webserver_port: int, timeout: float = 5.0
+    host: str, webserver_port: int, timeout: float = 5.0,
+    web_username: str = None, web_password: str = None,
 ) -> List[Dict[str, Any]]:
     """Discover sensors from an ESPHome board's web server.
 
     Tries to parse sensor data from the ESPHome web_server HTML page.
     Falls back to the /events SSE endpoint if HTML parsing fails.
+    Supports HTTP Basic Auth for protected web_server instances.
 
     Returns list of sensor dicts: [{"id": "...", "name": "...", "state": "...", "unit": "..."}, ...]
     """
     sensors = []
+    auth = None
+    if web_username and web_password:
+        auth = aiohttp.BasicAuth(web_username, web_password)
 
     try:
         url = f"http://{host}:{webserver_port}/"
         async with aiohttp.ClientSession() as session:
             async with session.get(
-                url, timeout=aiohttp.ClientTimeout(total=timeout)
+                url, timeout=aiohttp.ClientTimeout(total=timeout),
+                auth=auth,
             ) as response:
                 if response.status == 200:
                     html = await response.text()
@@ -35,7 +41,10 @@ async def discover_sensors(
     # Fallback: try /events endpoint for SSE data
     if not sensors:
         try:
-            sensors = await _try_events_endpoint(host, webserver_port, timeout)
+            sensors = await _try_events_endpoint(
+                host, webserver_port, timeout,
+                web_username=web_username, web_password=web_password,
+            )
         except Exception:
             pass
 
@@ -134,15 +143,20 @@ def parse_esphome_web_page(html: str) -> List[Dict[str, Any]]:
 
 
 async def _try_events_endpoint(
-    host: str, webserver_port: int, timeout: float = 5.0
+    host: str, webserver_port: int, timeout: float = 5.0,
+    web_username: str = None, web_password: str = None,
 ) -> List[Dict[str, Any]]:
     """Try to get sensor data from ESPHome /events SSE endpoint.
 
     ESPHome web_server exposes an /events endpoint that streams
     Server-Sent Events with entity state updates.
+    Supports HTTP Basic Auth.
     """
     sensors = []
     url = f"http://{host}:{webserver_port}/events"
+    auth = None
+    if web_username and web_password:
+        auth = aiohttp.BasicAuth(web_username, web_password)
 
     try:
         async with aiohttp.ClientSession() as session:
@@ -150,6 +164,7 @@ async def _try_events_endpoint(
                 url,
                 timeout=aiohttp.ClientTimeout(total=timeout),
                 headers={"Accept": "text/event-stream"},
+                auth=auth,
             ) as response:
                 if response.status != 200:
                     return sensors

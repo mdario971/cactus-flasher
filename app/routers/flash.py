@@ -69,6 +69,9 @@ async def upload_firmware(
         host,
         ports["ota"],
         board_name,
+        web_username=board.get("web_username"),
+        web_password=board.get("web_password"),
+        webserver_port=ports["webserver"],
     )
 
     return {
@@ -83,6 +86,9 @@ async def do_flash(
     host: str,
     port: int,
     board_name: str,
+    web_username: str = None,
+    web_password: str = None,
+    webserver_port: int = None,
 ):
     """Execute the firmware flash operation."""
     flash_operations[flash_id].status = "uploading"
@@ -97,6 +103,9 @@ async def do_flash(
             host,
             port,
             progress_callback=progress_callback,
+            web_username=web_username,
+            web_password=web_password,
+            webserver_port=webserver_port,
         )
 
         if success:
@@ -181,6 +190,9 @@ async def flash_from_build(
         host,
         ports["ota"],
         request.board_name,
+        web_username=board.get("web_username"),
+        web_password=board.get("web_password"),
+        webserver_port=ports["webserver"],
     )
 
     return {

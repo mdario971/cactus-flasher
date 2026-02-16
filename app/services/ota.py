@@ -16,61 +16,20 @@ class FlashProgress:
     message: str
 
 
-async def flash_firmware(
-    firmware_path: str,
-    host: str,
-    port: int,
-    progress_callback: Optional[Callable[[FlashProgress], None]] = None,
-    timeout: float = 120.0,
+async def _try_flash_to_url(
+    url: str,
+    firmware_file: Path,
+    firmware_data: bytes,
+    firmware_md5: str,
+    file_size: int,
+    progress_callback: Optional[Callable[[FlashProgress], None]],
+    timeout: float,
+    auth: Optional[aiohttp.BasicAuth] = None,
+    label: str = "",
 ) -> Tuple[bool, str]:
-    """
-    Flash firmware to an ESP32 board via HTTP OTA.
-
-    ESP32 ArduinoOTA and ESPHome both support HTTP POST to /update endpoint.
-
-    Args:
-        firmware_path: Path to the firmware .bin file
-        host: Hostname or IP of the ESP32
-        port: OTA port (typically 82XX)
-        progress_callback: Optional callback for progress updates
-        timeout: Timeout in seconds for the entire operation
-
-    Returns:
-        Tuple of (success: bool, message: str)
-    """
-    firmware_file = Path(firmware_path)
-    if not firmware_file.exists():
-        return False, f"Firmware file not found: {firmware_path}"
-
-    file_size = firmware_file.stat().st_size
-
-    # Calculate MD5 hash for verification
-    md5_hash = hashlib.md5()
-    with open(firmware_file, "rb") as f:
-        for chunk in iter(lambda: f.read(8192), b""):
-            md5_hash.update(chunk)
-    firmware_md5 = md5_hash.hexdigest()
-
-    # Report initial progress
-    if progress_callback:
-        progress_callback(FlashProgress(
-            percent=0,
-            bytes_sent=0,
-            total_bytes=file_size,
-            message="Preparing upload...",
-        ))
-
-    # ESP32 OTA update URL
-    url = f"http://{host}:{port}/update"
-
+    """Attempt to flash firmware to a specific URL."""
     try:
-        # Create multipart form data with the firmware
         async with aiohttp.ClientSession() as session:
-            # Read firmware into memory for upload
-            with open(firmware_file, "rb") as f:
-                firmware_data = f.read()
-
-            # Create form data
             form = aiohttp.FormData()
             form.add_field(
                 "firmware",
@@ -79,32 +38,29 @@ async def flash_firmware(
                 content_type="application/octet-stream",
             )
 
-            # Add MD5 header for verification
-            headers = {
-                "x-MD5": firmware_md5,
-            }
+            headers = {"x-MD5": firmware_md5}
 
             if progress_callback:
                 progress_callback(FlashProgress(
                     percent=10,
                     bytes_sent=0,
                     total_bytes=file_size,
-                    message="Connecting to board...",
+                    message=f"Connecting to board ({label})...",
                 ))
 
-            # Upload firmware
             async with session.post(
                 url,
                 data=form,
                 headers=headers,
                 timeout=aiohttp.ClientTimeout(total=timeout),
+                auth=auth,
             ) as response:
                 if progress_callback:
                     progress_callback(FlashProgress(
                         percent=50,
                         bytes_sent=file_size,
                         total_bytes=file_size,
-                        message="Uploading firmware...",
+                        message=f"Uploading firmware ({label})...",
                     ))
 
                 response_text = await response.text()
@@ -122,11 +78,100 @@ async def flash_firmware(
                     return False, f"Flash failed: HTTP {response.status} - {response_text}"
 
     except aiohttp.ClientConnectorError as e:
-        return False, f"Connection failed: {str(e)}"
+        return False, f"Connection failed ({label}): {str(e)}"
     except asyncio.TimeoutError:
-        return False, "Flash operation timed out"
+        return False, f"Flash timed out ({label})"
     except Exception as e:
-        return False, f"Flash failed: {str(e)}"
+        return False, f"Flash failed ({label}): {str(e)}"
+
+
+async def flash_firmware(
+    firmware_path: str,
+    host: str,
+    port: int,
+    progress_callback: Optional[Callable[[FlashProgress], None]] = None,
+    timeout: float = 120.0,
+    web_username: str = None,
+    web_password: str = None,
+    webserver_port: int = None,
+) -> Tuple[bool, str]:
+    """
+    Flash firmware to an ESP32 board via HTTP OTA.
+
+    Tries OTA port first (no auth), then falls back to web_server port with
+    HTTP Basic Auth if OTA port fails and web credentials are available.
+
+    Args:
+        firmware_path: Path to the firmware .bin file
+        host: Hostname or IP of the ESP32
+        port: OTA port (typically 82XX)
+        progress_callback: Optional callback for progress updates
+        timeout: Timeout in seconds for the entire operation
+        web_username: Optional HTTP Basic Auth username for web_server OTA
+        web_password: Optional HTTP Basic Auth password for web_server OTA
+        webserver_port: Optional web_server port for fallback OTA
+
+    Returns:
+        Tuple of (success: bool, message: str)
+    """
+    firmware_file = Path(firmware_path)
+    if not firmware_file.exists():
+        return False, f"Firmware file not found: {firmware_path}"
+
+    file_size = firmware_file.stat().st_size
+
+    # Calculate MD5 hash for verification
+    md5_hash = hashlib.md5()
+    with open(firmware_file, "rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            md5_hash.update(chunk)
+    firmware_md5 = md5_hash.hexdigest()
+
+    # Read firmware into memory
+    with open(firmware_file, "rb") as f:
+        firmware_data = f.read()
+
+    if progress_callback:
+        progress_callback(FlashProgress(
+            percent=0,
+            bytes_sent=0,
+            total_bytes=file_size,
+            message="Preparing upload...",
+        ))
+
+    # Try OTA port first
+    ota_url = f"http://{host}:{port}/update"
+    success, message = await _try_flash_to_url(
+        ota_url, firmware_file, firmware_data, firmware_md5,
+        file_size, progress_callback, timeout, label=f"OTA:{port}",
+    )
+
+    if success:
+        return True, message
+
+    # Fallback: try web_server port with Basic Auth
+    if webserver_port and web_username and web_password:
+        if progress_callback:
+            progress_callback(FlashProgress(
+                percent=5,
+                bytes_sent=0,
+                total_bytes=file_size,
+                message=f"OTA port failed, trying web_server port {webserver_port}...",
+            ))
+
+        web_url = f"http://{host}:{webserver_port}/update"
+        auth = aiohttp.BasicAuth(web_username, web_password)
+        success, web_message = await _try_flash_to_url(
+            web_url, firmware_file, firmware_data, firmware_md5,
+            file_size, progress_callback, timeout, auth=auth,
+            label=f"WEB:{webserver_port}",
+        )
+
+        if success:
+            return True, web_message
+        return False, f"OTA failed: {message} | Web fallback failed: {web_message}"
+
+    return False, message
 
 
 async def flash_firmware_chunked(
@@ -206,7 +251,6 @@ async def check_ota_available(host: str, port: int, timeout: float = 5.0) -> boo
                 url,
                 timeout=aiohttp.ClientTimeout(total=timeout),
             ) as response:
-                # Most OTA endpoints return 200 or 405 (method not allowed) for GET
                 return response.status in (200, 405)
     except Exception:
         return False

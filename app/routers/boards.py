@@ -1,7 +1,10 @@
 """Board management router for Cactus Flasher."""
+import asyncio
 from datetime import datetime, timezone
 from typing import List, Optional
+import aiohttp
 from fastapi import APIRouter, HTTPException, status
+from fastapi.responses import StreamingResponse
 
 from ..config import get_boards, save_boards, get_board_ports, get_board_hostname, settings
 from ..models.schemas import BoardCreate, BoardUpdate, BoardStatus, BoardList, SensorInfo
@@ -94,7 +97,7 @@ async def scan_boards():
     return {"boards": results}
 
 
-# IMPORTANT: /status-log must be BEFORE /{board_name} to avoid FastAPI matching it as a board name
+# IMPORTANT: /status-log, /discover, /{name}/logs must be BEFORE /{board_name}
 @router.get("/status-log")
 async def get_board_status_log(limit: int = 100, board: Optional[str] = None):
     """Get board online/offline status transition log."""
@@ -140,6 +143,67 @@ async def discover_boards(auto_register: bool = False):
         "new_boards": sum(1 for b in discovered if b["is_new"]),
         "auto_registered": auto_registered,
     }
+
+
+@router.get("/{board_name}/logs")
+async def stream_board_logs(board_name: str):
+    """Stream real-time events from a board's ESPHome web_server /events endpoint.
+
+    Proxies the SSE (Server-Sent Events) stream from the board to the client.
+    Supports HTTP Basic Auth for protected web_server instances.
+    """
+    boards_config = get_boards()
+    boards_data = boards_config.get("boards", {})
+
+    if board_name not in boards_data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Board '{board_name}' not found",
+        )
+
+    board = boards_data[board_name]
+    ports = get_board_ports(board["id"])
+    host = board.get("host") or settings.DDNS_HOST
+    web_user = board.get("web_username")
+    web_pass = board.get("web_password")
+
+    url = f"http://{host}:{ports['webserver']}/events"
+    auth = None
+    if web_user and web_pass:
+        auth = aiohttp.BasicAuth(web_user, web_pass)
+
+    async def event_generator():
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    url,
+                    timeout=aiohttp.ClientTimeout(total=300),
+                    headers={"Accept": "text/event-stream"},
+                    auth=auth,
+                ) as response:
+                    if response.status != 200:
+                        yield f"data: {{\"error\": \"Board returned HTTP {response.status}\"}}\n\n"
+                        return
+
+                    async for line in response.content:
+                        decoded = line.decode("utf-8", errors="ignore")
+                        yield decoded
+        except asyncio.CancelledError:
+            return
+        except aiohttp.ClientConnectorError:
+            yield 'data: {"error": "Cannot connect to board"}\n\n'
+        except Exception as e:
+            yield f'data: {{"error": "{str(e)}"}}\n\n'
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.get("/{board_name}", response_model=BoardStatus)
@@ -222,6 +286,10 @@ async def create_board(board: BoardCreate):
         board_data["api_key"] = board.api_key
     if board.mac_address:
         board_data["mac_address"] = board.mac_address
+    if board.web_username:
+        board_data["web_username"] = board.web_username
+    if board.web_password:
+        board_data["web_password"] = board.web_password
     boards_config["boards"][board.name] = board_data
     save_boards(boards_config)
 
@@ -266,6 +334,12 @@ async def update_board(board_name: str, board_update: BoardUpdate):
 
     if board_update.mac_address is not None:
         board["mac_address"] = board_update.mac_address
+
+    if board_update.web_username is not None:
+        board["web_username"] = board_update.web_username
+
+    if board_update.web_password is not None:
+        board["web_password"] = board_update.web_password
 
     boards_config["boards"][board_name] = board
     save_boards(boards_config)

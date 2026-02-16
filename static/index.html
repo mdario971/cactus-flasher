@@ -128,6 +128,23 @@
                     <!-- Board cards will be inserted here -->
                 </div>
 
+                <!-- Live Logs Viewer (hidden, expands when streaming) -->
+                <div id="live-logs-panel" class="mt-4 hidden">
+                    <div class="bg-gray-800 rounded-xl p-4 border border-gray-700">
+                        <div class="flex items-center justify-between mb-3">
+                            <h3 class="text-sm font-semibold">
+                                <span class="live-dot"></span>
+                                Live Logs: <span id="live-logs-board-name" class="text-cactus-400"></span>
+                            </h3>
+                            <button id="stop-live-logs-btn" class="px-3 py-1 text-xs bg-red-900 hover:bg-red-800 rounded transition-colors">
+                                Stop
+                            </button>
+                        </div>
+                        <div id="live-logs-output" class="console-panel bg-gray-900 rounded-lg p-3 h-56 overflow-y-auto font-mono text-xs">
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Port Reference -->
                 <div class="mt-6 bg-gray-800/50 rounded-lg p-4 border border-gray-700/50">
                     <h4 class="text-sm font-medium text-gray-400 mb-2">Port Reference (Board ID = XX)</h4>
@@ -410,6 +427,18 @@
                                            class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg">
                                 </div>
                             </div>
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-300 mb-1">Web Username (optional)</label>
+                                    <input type="text" id="board-web-username" placeholder="ESPHome web_server username"
+                                           class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-300 mb-1">Web Password (optional)</label>
+                                    <input type="password" id="board-web-password" placeholder="ESPHome web_server password"
+                                           class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg">
+                                </div>
+                            </div>
                             <button type="submit" class="px-4 py-2 bg-cactus-600 hover:bg-cactus-700 rounded-lg transition-colors">
                                 Add Board
                             </button>
@@ -677,6 +706,18 @@
                     <input type="password" id="modal-board-api-key" placeholder="ESPHome native API key"
                            class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg">
                 </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-1">Web Username</label>
+                        <input type="text" id="modal-board-web-username" placeholder="web_server auth"
+                               class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-1">Web Password</label>
+                        <input type="password" id="modal-board-web-password" placeholder="web_server auth"
+                               class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg">
+                    </div>
+                </div>
                 <div class="flex space-x-3">
                     <button type="button" id="cancel-add-board" class="flex-1 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors">
                         Cancel
@@ -689,6 +730,6 @@
         </div>
     </div>
 
-    <script src="/static/js/app.js?v=8"></script>
+    <script src="/static/js/app.js?v=9"></script>
 </body>
 </html>

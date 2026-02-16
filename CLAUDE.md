@@ -91,6 +91,7 @@ cactus-flasher/
 | GET | /api/boards/scan | No | boards.py:scan_boards |
 | GET | /api/boards/status-log | No | boards.py:get_board_status_log |
 | GET | /api/boards/discover | No | boards.py:discover_boards |
+| GET | /api/boards/{name}/logs | No | boards.py:stream_board_logs |
 | GET | /api/boards/{name} | No | boards.py:get_board |
 | PUT | /api/boards/{name} | No | boards.py:update_board |
 | DELETE | /api/boards/{name} | No | boards.py:delete_board |
@@ -140,7 +141,7 @@ VPS (cactus-flasher on port 8000)
 3. **DO NOT modify credentials.yaml manually** - bcrypt hashes are sensitive to format.
 4. **Build/flash operations are in-memory dicts** - they reset on server restart (by design).
 5. **Board routes have NO auth** - only auth endpoints use `get_current_user` dependency.
-6. **The `/api/boards/scan`, `/api/boards/status-log`, and `/api/boards/discover` paths must come BEFORE `/{board_name}`** in router registration - FastAPI matches routes in order.
+6. **The `/api/boards/scan`, `/api/boards/status-log`, `/api/boards/discover`, and `/{board_name}/logs` paths must come BEFORE `/{board_name}`** in router registration - FastAPI matches routes in order.
 7. **Frontend stores token in localStorage** - NOT cookies, NOT sessionStorage.
 8. **CORS allows all origins** - needed for cross-origin requests during development.
 9. **ESPHome build now supports companion files** - `yaml_file` + `companion_files` OR `.zip` archive.
@@ -156,6 +157,10 @@ VPS (cactus-flasher on port 8000)
 19. **`install.sh` generates the systemd service file dynamically** — the `cactus-flasher.service` in the repo is a template. The installer writes the real one to `/etc/systemd/system/` with the correct user and paths.
 20. **`deploy.sh` auto-detects paths** — uses `BASH_SOURCE` to find itself, `stat` to find the owner. No hardcoded paths.
 21. **App can be installed in any directory** — `/opt`, `/home/user`, `/srv`, etc. The installer and deploy script adapt automatically.
+22. **Board `web_username`/`web_password` fields** — optional HTTP Basic Auth credentials for ESPHome web_server. Stored in boards.yaml. Used by sensor discovery, MAC extraction, SSE log proxy, and OTA flash fallback.
+23. **SSE log proxy endpoint** — `GET /api/boards/{name}/logs` proxies the board's `/events` SSE endpoint with auth. Frontend uses `EventSource` to stream live sensor/entity updates.
+24. **OTA flash has web_server fallback** — `flash_firmware()` tries OTA port first, then falls back to `web_server_port /update` with HTTP Basic Auth if OTA port fails and web credentials are configured.
+25. **VPS deployment uses Docker** — `network_mode: host`, port 8080, behind nginx reverse proxy at `flasher.atrichocity.cloud` with SSL. IONOS provider only allows ports 22, 80, 443.
 
 ## Running the App
 ```bash
@@ -190,8 +195,8 @@ docker compose up --build
 - File size validation on uploads
 - Cleanup of old builds/uploads
 - ESPHome native API sensor discovery (requires `aioesphomeapi` + board API key)
-- Expandable board detail view with sensor data, device info, uptime
 - Force password change on first login with default credentials
 - Auto-scan interval (periodic background scan for board status)
 - Sensor history tracking (time-series data for charts)
 - Board grouping / tagging for organization
+- Edit board modal (currently must delete + re-add to change web credentials)

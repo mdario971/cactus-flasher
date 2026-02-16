@@ -37,9 +37,16 @@ async def scan_board_http(host: str, port: int, timeout: float = 3.0) -> bool:
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(url, timeout=aiohttp.ClientTimeout(total=timeout)) as response:
-                return response.status in (200, 401, 403)  # Any response means it's alive
+                return response.status in (200, 401, 403)
     except Exception:
         return False
+
+
+def _make_basic_auth(web_username: str = None, web_password: str = None):
+    """Create aiohttp BasicAuth if credentials are provided."""
+    if web_username and web_password:
+        return aiohttp.BasicAuth(web_username, web_password)
+    return None
 
 
 async def get_board_info(host: str, api_port: int, timeout: float = 5.0) -> Dict[str, Any]:
@@ -59,22 +66,24 @@ async def get_board_info(host: str, api_port: int, timeout: float = 5.0) -> Dict
 
 
 async def get_mac_address(
-    host: str, webserver_port: int, timeout: float = 5.0
+    host: str, webserver_port: int, timeout: float = 5.0,
+    web_username: str = None, web_password: str = None,
 ) -> Optional[str]:
     """Try to extract MAC address from ESPHome web server page.
 
     ESPHome web_server pages typically include the device MAC address
-    somewhere in the HTML content.
+    somewhere in the HTML content. Supports HTTP Basic Auth.
     """
     url = f"http://{host}:{webserver_port}/"
+    auth = _make_basic_auth(web_username, web_password)
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(
-                url, timeout=aiohttp.ClientTimeout(total=timeout)
+                url, timeout=aiohttp.ClientTimeout(total=timeout),
+                auth=auth,
             ) as response:
                 if response.status == 200:
                     html = await response.text()
-                    # Look for MAC address pattern in HTML
                     mac_match = re.search(
                         r'([0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:'
                         r'[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2})',
@@ -92,9 +101,12 @@ async def scan_single_board(name: str, board: dict) -> Dict[str, Any]:
 
     Checks OTA, webserver, and API ports.
     If webserver is online, also tries to discover MAC address and sensors.
+    Passes web_server auth credentials if configured.
     """
     ports = get_board_ports(board["id"])
     host = board.get("host") or settings.DDNS_HOST
+    web_user = board.get("web_username")
+    web_pass = board.get("web_password")
 
     # Check OTA port (most reliable for ESP32 OTA)
     ota_online = await scan_board(host, ports["ota"])
@@ -112,14 +124,20 @@ async def scan_single_board(name: str, board: dict) -> Dict[str, Any]:
     # Try to discover MAC address if webserver is online and MAC not already known
     mac_address = board.get("mac_address")
     if not mac_address and web_online:
-        mac_address = await get_mac_address(host, ports["webserver"])
+        mac_address = await get_mac_address(
+            host, ports["webserver"],
+            web_username=web_user, web_password=web_pass,
+        )
 
     # Try to discover sensors if webserver is online
     sensors = board.get("sensors", [])
     if web_online:
         try:
             from .sensors import discover_sensors
-            discovered = await discover_sensors(host, ports["webserver"])
+            discovered = await discover_sensors(
+                host, ports["webserver"],
+                web_username=web_user, web_password=web_pass,
+            )
             if discovered:
                 sensors = discovered
         except Exception:
