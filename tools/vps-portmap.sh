@@ -10,6 +10,7 @@
 # │    vps-portmap --check 8080 # Check if port is available     │
 # │    vps-portmap --json       # Output JSON to stdout          │
 # │    vps-portmap --conflicts  # Show only conflicts/warnings   │
+# │    vps-portmap --fix        # Interactive conflict resolution │
 # │                                                              │
 # │  Output: /etc/vps-portmap.yaml                               │
 # │  Install: cp tools/vps-portmap.sh /usr/local/bin/vps-portmap │
@@ -19,7 +20,7 @@ set -euo pipefail
 
 # ── Config ────────────────────────────────────────────────────
 REGISTRY_FILE="/etc/vps-portmap.yaml"
-VERSION="1.0.0"
+VERSION="1.1.0"
 
 # ── Colors ────────────────────────────────────────────────────
 RED='\033[0;31m'
@@ -219,14 +220,24 @@ while IFS= read -r svc; do
     SVC_STATE=$(systemctl show "$SVC_NAME" -p ActiveState --value 2>/dev/null || echo "unknown")
     SVC_ENV_FILE=$(systemctl show "$SVC_NAME" -p EnvironmentFile --value 2>/dev/null || echo "")
 
-    # Skip system services — only keep app services
-    # Check if ExecStart contains web server indicators
-    if ! echo "$SVC_EXEC" | grep -qiE 'uvicorn|gunicorn|node|npm|python|flask|django|next|nginx|apache|caddy|http|serve|fastapi'; then
-        continue
-    fi
+    # Skip known system services that are never web apps
+    case "$SVC_NAME" in
+        kmod-static-nodes|systemd-*|dbus*|cron*|rsyslog*|ssh*|logind*|\
+        udev*|polkit*|accounts-daemon|network*|ModemManager|udisks*|\
+        packagekit*|snapd*|thermald*|irqbalance*|lvm2*|multipathd*)
+            continue
+            ;;
+    esac
 
     # Skip nginx/apache themselves (we handle them separately)
     if [[ "$SVC_NAME" == "nginx" ]] || [[ "$SVC_NAME" == "apache"* ]]; then
+        continue
+    fi
+
+    # Skip system services — only keep app services
+    # Check if ExecStart contains web server indicators
+    # Use word boundaries to avoid false positives (e.g., "kmod-static-nodes" matching "node")
+    if ! echo "$SVC_EXEC" | grep -qP '(?:^|/)(?:uvicorn|gunicorn|node|npm|python3?|flask|django|next|nginx|apache|caddy|serve|fastapi)\b|--host|--port|--bind'; then
         continue
     fi
 
@@ -389,24 +400,66 @@ ssl_certificates:"
 if command -v certbot &>/dev/null; then
     FOUND_CERTS=false
 
+    # certbot certificates outputs blocks like:
+    #   Certificate Name: domain.com
+    #     Domains: domain.com www.domain.com
+    #     Expiry Date: 2026-05-15 12:00:00+00:00 (VALID: 89 days)
+    #     Certificate Path: /etc/letsencrypt/live/domain.com/fullchain.pem
+    # We parse this block-by-block
+    CERT_NAME="" CERT_DOMAINS="" CERT_EXPIRY_RAW="" CERT_CERT_PATH=""
+
     while IFS= read -r line; do
-        CERT_DOMAIN=$(echo "$line" | awk '{print $2}')
-        [ -z "$CERT_DOMAIN" ] && continue
-        FOUND_CERTS=true
-
-        CERT_PATH="/etc/letsencrypt/live/${CERT_DOMAIN}"
-        CERT_EXPIRY=""
-        if [ -f "${CERT_PATH}/fullchain.pem" ]; then
-            CERT_EXPIRY=$(openssl x509 -enddate -noout -in "${CERT_PATH}/fullchain.pem" 2>/dev/null | cut -d= -f2 || echo "")
-        fi
-
-        YAML+="
-  - domain: \"${CERT_DOMAIN}\"
+        # Extract Certificate Name
+        if echo "$line" | grep -qP '^\s*Certificate Name:\s'; then
+            # Save previous cert if any
+            if [ -n "$CERT_NAME" ]; then
+                FOUND_CERTS=true
+                CERT_PATH="/etc/letsencrypt/live/${CERT_NAME}"
+                # Try to get expiry from openssl if we have the file
+                CERT_EXPIRY=""
+                if [ -f "${CERT_PATH}/fullchain.pem" ]; then
+                    CERT_EXPIRY=$(openssl x509 -enddate -noout -in "${CERT_PATH}/fullchain.pem" 2>/dev/null | sed 's/notAfter=//' || echo "")
+                elif [ -n "$CERT_EXPIRY_RAW" ]; then
+                    CERT_EXPIRY="$CERT_EXPIRY_RAW"
+                fi
+                YAML+="
+  - domain: \"${CERT_NAME}\"
+    domains: \"${CERT_DOMAINS}\"
     path: \"${CERT_PATH}\"
     expiry: \"${CERT_EXPIRY}\""
+                log_ok "${CERT_NAME} → expires: ${CERT_EXPIRY:-unknown}"
+            fi
+            # Start new cert block
+            CERT_NAME=$(echo "$line" | sed 's/.*Certificate Name:\s*//')
+            CERT_DOMAINS="" CERT_EXPIRY_RAW="" CERT_CERT_PATH=""
+        fi
+        # Extract Domains
+        if echo "$line" | grep -qP '^\s*Domains:\s'; then
+            CERT_DOMAINS=$(echo "$line" | sed 's/.*Domains:\s*//')
+        fi
+        # Extract Expiry Date
+        if echo "$line" | grep -qP '^\s*Expiry Date:\s'; then
+            CERT_EXPIRY_RAW=$(echo "$line" | sed 's/.*Expiry Date:\s*//' | sed 's/\s*(VALID.*//' | sed 's/\s*(INVALID.*//')
+        fi
+    done < <(certbot certificates 2>/dev/null)
 
-        log_ok "${CERT_DOMAIN} → expires: ${CERT_EXPIRY:-unknown}"
-    done < <(certbot certificates 2>/dev/null | grep "Certificate Name:" || true)
+    # Flush last cert
+    if [ -n "$CERT_NAME" ]; then
+        FOUND_CERTS=true
+        CERT_PATH="/etc/letsencrypt/live/${CERT_NAME}"
+        CERT_EXPIRY=""
+        if [ -f "${CERT_PATH}/fullchain.pem" ]; then
+            CERT_EXPIRY=$(openssl x509 -enddate -noout -in "${CERT_PATH}/fullchain.pem" 2>/dev/null | sed 's/notAfter=//' || echo "")
+        elif [ -n "$CERT_EXPIRY_RAW" ]; then
+            CERT_EXPIRY="$CERT_EXPIRY_RAW"
+        fi
+        YAML+="
+  - domain: \"${CERT_NAME}\"
+    domains: \"${CERT_DOMAINS}\"
+    path: \"${CERT_PATH}\"
+    expiry: \"${CERT_EXPIRY}\""
+        log_ok "${CERT_NAME} → expires: ${CERT_EXPIRY:-unknown}"
+    fi
 
     if [ "$FOUND_CERTS" = false ]; then
         YAML+="
@@ -582,6 +635,7 @@ echo ""
 echo -e "  ${BOLD}Quick commands:${NC}"
 echo -e "    ${CYAN}vps-portmap --show${NC}       View current registry"
 echo -e "    ${CYAN}vps-portmap --check 8080${NC} Check if port is free"
+echo -e "    ${CYAN}vps-portmap --fix${NC}        Fix detected conflicts"
 echo -e "    ${CYAN}cat ${REGISTRY_FILE}${NC}     Read raw YAML"
 echo ""
 
@@ -607,4 +661,234 @@ if [ "${1:-}" = "--conflicts" ]; then
         echo -e "\n${GREEN}No conflicts.${NC}"
         exit 0
     fi
+fi
+
+# ══════════════════════════════════════════════════════════════
+# ── Mode: --fix (Interactive Conflict Resolution) ────────────
+# ══════════════════════════════════════════════════════════════
+if [ "${1:-}" = "--fix" ]; then
+    echo ""
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${BOLD}  vps-portmap --fix — Interactive Conflict Resolution${NC}"
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+
+    FIX_COUNT=0
+
+    # ── Fix 1: Duplicate Nginx proxy targets ──────────────────
+    if [ -d "/etc/nginx/sites-enabled" ]; then
+        PROXY_TARGETS_FIX=""
+        for conf in /etc/nginx/sites-enabled/*; do
+            [ -f "$conf" ] || continue
+            PP=$(grep -oP 'proxy_pass\s+\K[^;]+' "$conf" | head -1 || true)
+            [ -n "$PP" ] && PROXY_TARGETS_FIX+="$(basename "$conf")|${PP}|${conf}\n"
+        done
+        DUPE_TARGETS_FIX=$(echo -e "$PROXY_TARGETS_FIX" | grep -v '^$' | cut -d'|' -f2 | sort | uniq -d)
+        for dt in $DUPE_TARGETS_FIX; do
+            [ -z "$dt" ] && continue
+            echo ""
+            log_warn "Multiple Nginx configs proxy to the same target: ${BOLD}${dt}${NC}"
+            echo ""
+            CONFLICTING_CONFIGS=()
+            while IFS= read -r entry; do
+                [ -z "$entry" ] && continue
+                C_NAME=$(echo "$entry" | cut -d'|' -f1)
+                C_PATH=$(echo "$entry" | cut -d'|' -f3)
+                C_DOMAIN=$(grep -oP 'server_name\s+\K[^;]+' "$C_PATH" 2>/dev/null | head -1 || echo "(none)")
+                CONFLICTING_CONFIGS+=("$C_PATH")
+                echo -e "    ${BOLD}$((${#CONFLICTING_CONFIGS[@]}))${NC}. ${C_NAME} (domain: ${C_DOMAIN}) → ${dt}"
+            done < <(echo -e "$PROXY_TARGETS_FIX" | grep "|${dt}")
+
+            if [ ${#CONFLICTING_CONFIGS[@]} -ge 2 ]; then
+                echo ""
+                echo -e "  ${YELLOW}Choose action:${NC}"
+                echo -e "    ${BOLD}d${NC}) Disable one of the configs (moves to sites-available)"
+                echo -e "    ${BOLD}s${NC}) Skip this conflict"
+                read -rp "  > " FIX_ACTION
+                case "$FIX_ACTION" in
+                    d|D)
+                        echo ""
+                        echo -e "  Which config to disable? (enter number)"
+                        for i in "${!CONFLICTING_CONFIGS[@]}"; do
+                            echo -e "    ${BOLD}$((i+1))${NC}) $(basename "${CONFLICTING_CONFIGS[$i]}")"
+                        done
+                        read -rp "  > " DISABLE_NUM
+                        DISABLE_IDX=$((DISABLE_NUM - 1))
+                        if [ "$DISABLE_IDX" -ge 0 ] && [ "$DISABLE_IDX" -lt ${#CONFLICTING_CONFIGS[@]} ]; then
+                            DISABLE_PATH="${CONFLICTING_CONFIGS[$DISABLE_IDX]}"
+                            DISABLE_NAME=$(basename "$DISABLE_PATH")
+                            AVAIL_PATH="/etc/nginx/sites-available/${DISABLE_NAME}"
+                            echo -e "  Disabling ${BOLD}${DISABLE_NAME}${NC}..."
+                            # Move symlink target or file to sites-available, remove from sites-enabled
+                            if [ -L "$DISABLE_PATH" ]; then
+                                rm "$DISABLE_PATH"
+                                log_ok "Removed symlink: ${DISABLE_PATH}"
+                            else
+                                mv "$DISABLE_PATH" "$AVAIL_PATH"
+                                log_ok "Moved to: ${AVAIL_PATH}"
+                            fi
+                            FIX_COUNT=$((FIX_COUNT + 1))
+                        else
+                            log_warn "Invalid selection, skipping."
+                        fi
+                        ;;
+                    *)
+                        log_info "Skipped."
+                        ;;
+                esac
+            fi
+        done
+    fi
+
+    # ── Fix 2: Nginx configs with invalid/non-FQDN domains ───
+    if [ -d "/etc/nginx/sites-enabled" ]; then
+        for conf in /etc/nginx/sites-enabled/*; do
+            [ -f "$conf" ] || continue
+            CONF_NAME=$(basename "$conf")
+            SN=$(grep -oP 'server_name\s+\K[^;]+' "$conf" | head -1 || echo "")
+            # Check if server_name looks like a bare word (no dots = not a FQDN)
+            if [ -n "$SN" ] && ! echo "$SN" | grep -q '\.'; then
+                echo ""
+                log_warn "Nginx config ${BOLD}${CONF_NAME}${NC} has non-FQDN server_name: ${BOLD}${SN}${NC}"
+                echo -e "  ${YELLOW}Choose action:${NC}"
+                echo -e "    ${BOLD}r${NC}) Replace with a valid domain"
+                echo -e "    ${BOLD}d${NC}) Disable this config"
+                echo -e "    ${BOLD}s${NC}) Skip"
+                read -rp "  > " FIX_ACTION
+                case "$FIX_ACTION" in
+                    r|R)
+                        read -rp "  Enter the correct FQDN (e.g., app.example.com): " NEW_DOMAIN
+                        if echo "$NEW_DOMAIN" | grep -qP '^[a-zA-Z0-9]([a-zA-Z0-9-]*\.)+[a-zA-Z]{2,}$'; then
+                            sed -i "s/server_name ${SN};/server_name ${NEW_DOMAIN};/" "$conf"
+                            log_ok "Updated server_name to: ${NEW_DOMAIN}"
+                            FIX_COUNT=$((FIX_COUNT + 1))
+                            # Offer to fix SSL cert too
+                            if grep -q "ssl_certificate" "$conf"; then
+                                echo -e "  ${YELLOW}This config has SSL paths. Update cert paths for ${NEW_DOMAIN}?${NC}"
+                                echo -e "    ${BOLD}y${NC}) Yes, update paths to /etc/letsencrypt/live/${NEW_DOMAIN}/"
+                                echo -e "    ${BOLD}c${NC}) Yes, and run certbot to obtain cert"
+                                echo -e "    ${BOLD}n${NC}) No, leave as is"
+                                read -rp "  > " SSL_ACTION
+                                case "$SSL_ACTION" in
+                                    y|Y)
+                                        sed -i "s|ssl_certificate .*|ssl_certificate /etc/letsencrypt/live/${NEW_DOMAIN}/fullchain.pem;|" "$conf"
+                                        sed -i "s|ssl_certificate_key .*|ssl_certificate_key /etc/letsencrypt/live/${NEW_DOMAIN}/privkey.pem;|" "$conf"
+                                        log_ok "Updated SSL paths for ${NEW_DOMAIN}"
+                                        FIX_COUNT=$((FIX_COUNT + 1))
+                                        ;;
+                                    c|C)
+                                        echo -e "  Running certbot for ${NEW_DOMAIN}..."
+                                        if certbot --nginx -d "$NEW_DOMAIN" --non-interactive --agree-tos --redirect 2>&1; then
+                                            log_ok "Certbot completed for ${NEW_DOMAIN}"
+                                            FIX_COUNT=$((FIX_COUNT + 1))
+                                        else
+                                            log_warn "Certbot failed. You may need to run it manually."
+                                        fi
+                                        ;;
+                                    *)
+                                        log_info "SSL paths unchanged."
+                                        ;;
+                                esac
+                            fi
+                        else
+                            log_warn "Invalid domain format. Must be like: app.example.com"
+                        fi
+                        ;;
+                    d|D)
+                        AVAIL_PATH="/etc/nginx/sites-available/${CONF_NAME}"
+                        if [ -L "$conf" ]; then
+                            rm "$conf"
+                            log_ok "Removed symlink: ${conf}"
+                        else
+                            mv "$conf" "$AVAIL_PATH"
+                            log_ok "Moved to: ${AVAIL_PATH}"
+                        fi
+                        FIX_COUNT=$((FIX_COUNT + 1))
+                        ;;
+                    *)
+                        log_info "Skipped."
+                        ;;
+                esac
+            fi
+        done
+    fi
+
+    # ── Fix 3: Stale Docker containers (running, no ports) ────
+    if command -v docker &>/dev/null && docker info &>/dev/null 2>&1; then
+        while IFS= read -r line; do
+            [ -z "$line" ] && continue
+            C_NAME=$(echo "$line" | cut -d'|' -f1)
+            C_PORTS=$(echo "$line" | cut -d'|' -f2)
+            C_STATUS=$(echo "$line" | cut -d'|' -f3)
+            C_IMAGE=$(echo "$line" | cut -d'|' -f4)
+
+            # Flag containers with no port bindings that might be stale
+            if [ -z "$C_PORTS" ]; then
+                echo ""
+                log_warn "Docker container ${BOLD}${C_NAME}${NC} (${C_IMAGE}) has no port bindings"
+                echo -e "    Status: ${C_STATUS}"
+                echo -e "  ${YELLOW}Choose action:${NC}"
+                echo -e "    ${BOLD}r${NC}) Remove container (docker rm -f)"
+                echo -e "    ${BOLD}s${NC}) Skip"
+                read -rp "  > " FIX_ACTION
+                case "$FIX_ACTION" in
+                    r|R)
+                        docker rm -f "$C_NAME" &>/dev/null
+                        log_ok "Removed container: ${C_NAME}"
+                        FIX_COUNT=$((FIX_COUNT + 1))
+                        ;;
+                    *)
+                        log_info "Skipped."
+                        ;;
+                esac
+            fi
+        done < <(docker ps --format '{{.Names}}|{{.Ports}}|{{.Status}}|{{.Image}}' 2>/dev/null)
+    fi
+
+    # ── Fix 4: Nginx reload if changes were made ──────────────
+    echo ""
+    if [ "$FIX_COUNT" -gt 0 ]; then
+        echo -e "${GREEN}${BOLD}  $FIX_COUNT fix(es) applied.${NC}"
+
+        # Test and reload Nginx if it's running
+        if systemctl is-active --quiet nginx 2>/dev/null; then
+            echo ""
+            echo -e "  ${YELLOW}Test and reload Nginx?${NC}"
+            echo -e "    ${BOLD}y${NC}) Yes"
+            echo -e "    ${BOLD}n${NC}) No"
+            read -rp "  > " RELOAD_ACTION
+            case "$RELOAD_ACTION" in
+                y|Y)
+                    if nginx -t 2>&1; then
+                        systemctl reload nginx
+                        log_ok "Nginx reloaded successfully"
+                    else
+                        log_warn "Nginx config test failed! Fix errors before reloading."
+                    fi
+                    ;;
+                *)
+                    log_info "Nginx not reloaded. Run 'nginx -t && systemctl reload nginx' when ready."
+                    ;;
+            esac
+        fi
+
+        # Re-scan to update registry
+        echo ""
+        echo -e "  ${YELLOW}Re-scan to update registry?${NC}"
+        echo -e "    ${BOLD}y${NC}) Yes"
+        echo -e "    ${BOLD}n${NC}) No"
+        read -rp "  > " RESCAN_ACTION
+        case "$RESCAN_ACTION" in
+            y|Y)
+                echo -e "\n  Re-scanning..."
+                exec "$0"
+                ;;
+            *)
+                log_info "Run 'vps-portmap' to update the registry."
+                ;;
+        esac
+    else
+        echo -e "${GREEN}  No fixes needed or all conflicts skipped.${NC}"
+    fi
+
+    exit 0
 fi

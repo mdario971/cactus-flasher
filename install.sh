@@ -376,7 +376,14 @@ echo ""
 
 # ─── Optional: Nginx + SSL ───────────────────────────────────
 echo -e "${BOLD}Would you like to configure Nginx reverse proxy + SSL?${NC}"
-read -rp "  Enter domain (or Enter to skip): " DOMAIN
+while true; do
+    read -rp "  Enter domain FQDN (e.g., app.example.com) or Enter to skip: " DOMAIN
+    [ -z "$DOMAIN" ] && break
+    if echo "$DOMAIN" | grep -qP '^[a-zA-Z0-9]([a-zA-Z0-9-]*\.)+[a-zA-Z]{2,}$'; then
+        break
+    fi
+    echo -e "  ${RED}Invalid domain. Must be a fully qualified domain (e.g., flasher.example.com)${NC}"
+done
 
 if [ -n "$DOMAIN" ]; then
     log_step "Configuring Nginx for $DOMAIN"
