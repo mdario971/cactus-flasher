@@ -251,9 +251,10 @@ while IFS= read -r svc; do
     SVC_TYPE="unknown"
     echo "$SVC_EXEC" | grep -qi "uvicorn" && SVC_TYPE="fastapi/uvicorn"
     echo "$SVC_EXEC" | grep -qi "gunicorn" && SVC_TYPE="gunicorn"
-    echo "$SVC_EXEC" | grep -qi "node\|npm\|next" && SVC_TYPE="node.js"
+    echo "$SVC_EXEC" | grep -qiP '(?:^|/)(node|npm|next)\b' && SVC_TYPE="node.js"
     echo "$SVC_EXEC" | grep -qi "flask" && SVC_TYPE="flask"
     echo "$SVC_EXEC" | grep -qi "django" && SVC_TYPE="django"
+    echo "$SVC_EXEC" | grep -qi "ollama" && SVC_TYPE="ollama"
 
     # Find matching Nginx config for this port
     NGINX_CONF=""
