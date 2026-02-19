@@ -8,22 +8,21 @@ from ..config import get_board_ports, get_board_hostname, settings
 
 
 async def scan_board(host: str, port: int, timeout: float = 3.0) -> bool:
-    """Check if a board is online via HTTP to its OTA /update endpoint.
+    """Check if a board's OTA port is reachable via raw TCP connection.
 
-    Uses HTTP GET instead of raw TCP - ESPHome/ArduinoOTA respond with
-    200 or 405 on GET /update, which is more reliable than raw TCP check.
+    Uses raw TCP instead of HTTP because ESPHome OTA uses a binary protocol.
+    Sending HTTP to the OTA port causes 'Magic bytes mismatch' errors on the board.
     Retries once on failure.
     """
     for attempt in range(2):
         try:
-            url = f"http://{host}:{port}/update"
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    url,
-                    timeout=aiohttp.ClientTimeout(total=timeout),
-                ) as response:
-                    if response.status in (200, 405, 401, 403):
-                        return True
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(host, port),
+                timeout=timeout,
+            )
+            writer.close()
+            await writer.wait_closed()
+            return True
         except Exception:
             pass
         if attempt == 0:
