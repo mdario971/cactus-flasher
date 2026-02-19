@@ -113,6 +113,29 @@ async def get_board_status_log(limit: int = 100, board: Optional[str] = None):
     return {"logs": logs}
 
 
+@router.delete("/status-log")
+async def clear_status_log():
+    """Clear all status log entries."""
+    from ..services.status_logger import clear_all_logs
+
+    count = clear_all_logs()
+    return {"message": f"Cleared {count} log entries"}
+
+
+@router.delete("/status-log/entry")
+async def delete_status_log_entry(timestamp: str, board_name: str):
+    """Delete a specific status log entry."""
+    from ..services.status_logger import delete_log_entry
+
+    deleted = delete_log_entry(timestamp, board_name)
+    if not deleted:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Log entry not found",
+        )
+    return {"message": "Log entry deleted"}
+
+
 @router.get("/discover")
 async def discover_boards(auto_register: bool = False):
     """Discover ESP32 boards on the network by scanning OTA ports."""

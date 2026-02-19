@@ -90,6 +90,8 @@ cactus-flasher/
 | POST | /api/boards | No | boards.py:create_board |
 | GET | /api/boards/scan | No | boards.py:scan_boards |
 | GET | /api/boards/status-log | No | boards.py:get_board_status_log |
+| DELETE | /api/boards/status-log | No | boards.py:clear_status_log |
+| DELETE | /api/boards/status-log/entry | No | boards.py:delete_status_log_entry |
 | GET | /api/boards/discover | No | boards.py:discover_boards |
 | GET | /api/boards/{name}/logs | No | boards.py:stream_board_logs |
 | GET | /api/boards/{name} | No | boards.py:get_board |
@@ -161,6 +163,12 @@ VPS (cactus-flasher on port 8000)
 23. **SSE log proxy endpoint** — `GET /api/boards/{name}/logs` proxies the board's `/events` SSE endpoint with auth. Frontend uses `EventSource` to stream live sensor/entity updates.
 24. **OTA flash has web_server fallback** — `flash_firmware()` tries OTA port first, then falls back to `web_server_port /update` with HTTP Basic Auth if OTA port fails and web credentials are configured.
 25. **VPS deployment uses Docker** — `network_mode: host`, port 8080, behind nginx reverse proxy at `flasher.atrichocity.cloud` with SSL. IONOS provider only allows ports 22, 80, 443.
+26. **Connection History is collapsible** — collapsed by default, with Clear All button and per-entry delete (x) buttons. Backend endpoints: `DELETE /api/boards/status-log` and `DELETE /api/boards/status-log/entry?timestamp=...&board_name=...`.
+27. **Board Operations Log is always visible** — not collapsible, full-width by default. When live logs are streaming, splits into side-by-side layout (50/50) with Live Logs panel. Both panels have maximize/minimize toggle (⛶ button). Save/Clear buttons in header.
+28. **Live Logs panel** — hidden by default, appears side-by-side with Board Ops Log when streaming starts. Has filter dropdown, save/stop buttons, and maximize toggle. Auto-hides when stream stops.
+29. **OTA scanner uses raw TCP** — `scan_board()` opens a TCP connection and closes immediately without sending data. This avoids "Magic bytes mismatch" errors on ESPHome boards (OTA uses binary protocol, not HTTP).
+30. **Port Reference is above action buttons** — displayed at the top of the Boards tab, above the Scan All/Discover/Add Board buttons.
+31. **No auto-scan timer** — removed from the UI. Manual scan only via Scan All button.
 
 ## Running the App
 ```bash
@@ -196,7 +204,6 @@ docker compose up --build
 - Cleanup of old builds/uploads
 - ESPHome native API sensor discovery (requires `aioesphomeapi` + board API key)
 - Force password change on first login with default credentials
-- Auto-scan interval (periodic background scan for board status)
 - Sensor history tracking (time-series data for charts)
 - Board grouping / tagging for organization
 - Edit board modal (currently must delete + re-add to change web credentials)

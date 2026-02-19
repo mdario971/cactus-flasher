@@ -12,6 +12,7 @@ class CactusFlasher {
         this.liveLogBoardName = null;
         this.liveLogFilter = 'all';
         this.liveLogCount = 0;
+        this.maximizedPanel = null; // null, 'ops-log', 'live-logs'
 
         this.init();
     }
@@ -138,10 +139,19 @@ class CactusFlasher {
             this.showPasswordStrength(e.target.value, 'cp-password-strength');
         });
 
-        // Status log refresh
+        // Connection History collapsible
+        document.getElementById('toggle-status-log').addEventListener('click', () => {
+            this.toggleSection('status-log-body', 'status-log-chevron');
+        });
+
+        // Status log refresh + clear
         const refreshLogBtn = document.getElementById('refresh-status-log-btn');
         if (refreshLogBtn) {
             refreshLogBtn.addEventListener('click', () => this.loadStatusLog());
+        }
+        const clearAllLogBtn = document.getElementById('clear-all-status-log-btn');
+        if (clearAllLogBtn) {
+            clearAllLogBtn.addEventListener('click', () => this.clearAllStatusLogs());
         }
 
         // Live logs controls
@@ -169,6 +179,16 @@ class CactusFlasher {
         const saveConsoleBtn = document.getElementById('save-console-btn');
         if (saveConsoleBtn) {
             saveConsoleBtn.addEventListener('click', () => this.downloadLogs('console-output', 'flash-log'));
+        }
+
+        // Panel maximize buttons
+        const maxOpsBtn = document.getElementById('maximize-ops-log-btn');
+        if (maxOpsBtn) {
+            maxOpsBtn.addEventListener('click', () => this.togglePanelMaximize('ops-log'));
+        }
+        const maxLiveBtn = document.getElementById('maximize-live-logs-btn');
+        if (maxLiveBtn) {
+            maxLiveBtn.addEventListener('click', () => this.togglePanelMaximize('live-logs'));
         }
     }
 
@@ -639,14 +659,19 @@ class CactusFlasher {
         const panel = document.getElementById('live-logs-panel');
         const output = document.getElementById('live-logs-output');
         const nameEl = document.getElementById('live-logs-board-name');
+        const maxOpsBtn = document.getElementById('maximize-ops-log-btn');
 
         panel.classList.remove('hidden');
         nameEl.textContent = boardName;
         output.innerHTML = '<p class="text-gray-500">Connecting...</p>';
 
+        // Show maximize button on ops log since we're now in split mode
+        if (maxOpsBtn) maxOpsBtn.classList.remove('hidden');
+
         this.liveLogBoardName = boardName;
         this.liveLogCount = 0;
         this.liveLogFilter = 'all';
+        this.maximizedPanel = null;
         const filterEl = document.getElementById('live-logs-filter');
         if (filterEl) filterEl.value = 'all';
 
@@ -738,6 +763,45 @@ class CactusFlasher {
         }
         const panel = document.getElementById('live-logs-panel');
         if (panel) panel.classList.add('hidden');
+
+        // Hide maximize button on ops log, reset to full width
+        const maxOpsBtn = document.getElementById('maximize-ops-log-btn');
+        if (maxOpsBtn) maxOpsBtn.classList.add('hidden');
+
+        // Reset maximized state
+        this.maximizedPanel = null;
+        const opsPanel = document.getElementById('ops-log-panel');
+        if (opsPanel) {
+            opsPanel.classList.remove('hidden');
+            opsPanel.style.flex = '';
+        }
+    }
+
+    // ==================== Panel Maximize/Minimize ====================
+
+    togglePanelMaximize(panelId) {
+        const opsPanel = document.getElementById('ops-log-panel');
+        const livePanel = document.getElementById('live-logs-panel');
+        if (!opsPanel || !livePanel) return;
+
+        if (this.maximizedPanel === panelId) {
+            // Restore side-by-side
+            this.maximizedPanel = null;
+            opsPanel.classList.remove('hidden');
+            livePanel.classList.remove('hidden');
+            opsPanel.style.flex = '';
+            livePanel.style.flex = '';
+        } else {
+            // Maximize the selected panel
+            this.maximizedPanel = panelId;
+            if (panelId === 'ops-log') {
+                opsPanel.classList.remove('hidden');
+                livePanel.classList.add('hidden');
+            } else {
+                livePanel.classList.remove('hidden');
+                opsPanel.classList.add('hidden');
+            }
+        }
     }
 
     logLivePanel(message, level = 'info') {
@@ -872,6 +936,7 @@ class CactusFlasher {
                         <th class="text-left py-1.5 text-gray-400 font-medium">Board</th>
                         <th class="text-left py-1.5 text-gray-400 font-medium">Status</th>
                         <th class="text-left py-1.5 text-gray-400 font-medium hidden sm:table-cell">Details</th>
+                        <th class="w-8"></th>
                     </tr>
                 </thead>
                 <tbody>
@@ -886,12 +951,46 @@ class CactusFlasher {
                                     <span class="badge badge-${isOnline ? 'online' : 'offline'}">${log.event}</span>
                                 </td>
                                 <td class="py-1.5 text-gray-500 text-xs font-mono hidden sm:table-cell">${log.details || ''}</td>
+                                <td class="py-1.5 text-right">
+                                    <button onclick="app.deleteStatusLogEntry('${log.timestamp}', '${log.board_name}')"
+                                            class="status-log-delete-btn text-red-500 hover:text-red-300 text-lg leading-none"
+                                            title="Delete entry">&times;</button>
+                                </td>
                             </tr>
                         `;
                     }).join('')}
                 </tbody>
             </table>
         `;
+    }
+
+    toggleSection(bodyId, chevronId) {
+        const body = document.getElementById(bodyId);
+        const chevron = document.getElementById(chevronId);
+        if (!body || !chevron) return;
+        const isHidden = body.classList.contains('hidden');
+        body.classList.toggle('hidden', !isHidden);
+        chevron.style.transform = isHidden ? '' : 'rotate(-90deg)';
+    }
+
+    async clearAllStatusLogs() {
+        if (!confirm('Clear all connection history entries?')) return;
+        try {
+            await this.api('/api/boards/status-log', { method: 'DELETE' });
+            this.showToast('Connection history cleared', 'success');
+            this.loadStatusLog();
+        } catch (error) {
+            this.showToast('Failed to clear history: ' + error.message, 'error');
+        }
+    }
+
+    async deleteStatusLogEntry(timestamp, boardName) {
+        try {
+            await this.api(`/api/boards/status-log/entry?timestamp=${encodeURIComponent(timestamp)}&board_name=${encodeURIComponent(boardName)}`, { method: 'DELETE' });
+            this.loadStatusLog();
+        } catch (error) {
+            this.showToast('Failed to delete entry', 'error');
+        }
     }
 
     // ==================== Flash / Build ====================

@@ -101,6 +101,17 @@
 
             <!-- Boards Tab -->
             <div id="tab-boards" class="tab-content">
+                <!-- Port Reference (top) -->
+                <div class="mb-4 bg-gray-800/50 rounded-lg p-3 border border-gray-700/50 flex items-center justify-between">
+                    <h4 class="text-sm font-medium text-gray-400">Port Reference (Board ID = XX)</h4>
+                    <div class="flex flex-wrap gap-4 text-sm">
+                        <span><span class="port-badge web">WEB</span> <span class="text-gray-400">80XX</span> - Webserver</span>
+                        <span><span class="port-badge ota">OTA</span> <span class="text-gray-400">82XX</span> - Firmware updates</span>
+                        <span><span class="port-badge api">API</span> <span class="text-gray-400">60XX</span> - ESPHome Native API</span>
+                    </div>
+                </div>
+
+                <!-- Header: title + action buttons -->
                 <div class="flex items-center justify-between mb-4">
                     <h2 class="text-xl font-semibold">Registered Boards</h2>
                     <div class="space-x-2">
@@ -124,20 +135,39 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- Board Cards Grid -->
                 <div id="boards-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                     <!-- Board cards will be inserted here -->
                 </div>
 
-                <!-- Live Logs Viewer (hidden, expands when streaming) -->
-                <div id="live-logs-panel" class="mt-4 hidden">
-                    <div class="bg-gray-800 rounded-xl p-4 border border-gray-700">
+                <!-- Log Panels Container: Board Ops Log (always) + Live Logs (when streaming) -->
+                <div id="log-panels-container" class="mt-6 flex gap-4">
+                    <!-- Board Operations Log (always visible, full-width default) -->
+                    <div id="ops-log-panel" class="flex-1 bg-gray-800 rounded-xl p-4 border border-gray-700 min-w-0">
                         <div class="flex items-center justify-between mb-3">
-                            <h3 class="text-sm font-semibold">
+                            <h2 class="text-lg font-semibold">Board Operations Log</h2>
+                            <div class="flex items-center space-x-2">
+                                <button id="maximize-ops-log-btn" class="text-gray-500 hover:text-white text-sm hidden" title="Toggle maximize">&#x26F6;</button>
+                                <button id="save-boards-console-btn" class="text-sm text-gray-400 hover:text-white" title="Download log as TXT">Save</button>
+                                <button id="clear-boards-console-btn" class="text-sm text-gray-400 hover:text-white">Clear</button>
+                            </div>
+                        </div>
+                        <div id="boards-console-output" class="console-panel bg-gray-900 rounded-lg p-4 h-64 overflow-y-auto font-mono text-sm">
+                            <p class="text-gray-500">Ready...</p>
+                        </div>
+                    </div>
+
+                    <!-- Live Logs Panel (hidden until streaming, appears as right panel) -->
+                    <div id="live-logs-panel" class="flex-1 bg-gray-800 rounded-xl p-4 border border-gray-700 min-w-0 hidden">
+                        <div class="flex items-center justify-between mb-3">
+                            <h3 class="text-sm font-semibold flex items-center">
                                 <span class="live-dot"></span>
-                                Live Logs: <span id="live-logs-board-name" class="text-cactus-400"></span>
+                                Live Logs: <span id="live-logs-board-name" class="text-cactus-400 ml-1"></span>
                                 <span id="live-logs-count" class="text-gray-500 text-xs ml-2"></span>
                             </h3>
                             <div class="flex items-center space-x-2">
+                                <button id="maximize-live-logs-btn" class="text-gray-500 hover:text-white text-sm" title="Toggle maximize">&#x26F6;</button>
                                 <select id="live-logs-filter" class="px-2 py-1 text-xs bg-gray-700 border border-gray-600 rounded">
                                     <option value="all">All events</option>
                                     <option value="sensor">Sensors only</option>
@@ -146,12 +176,8 @@
                                     <option value="text">Text sensors</option>
                                     <option value="log">Logs only</option>
                                 </select>
-                                <button id="download-live-logs-btn" class="px-3 py-1 text-xs bg-gray-700 hover:bg-gray-600 rounded transition-colors" title="Download logs as TXT">
-                                    Save
-                                </button>
-                                <button id="stop-live-logs-btn" class="px-3 py-1 text-xs bg-red-900 hover:bg-red-800 rounded transition-colors">
-                                    Stop
-                                </button>
+                                <button id="download-live-logs-btn" class="px-3 py-1 text-xs bg-gray-700 hover:bg-gray-600 rounded transition-colors" title="Download logs as TXT">Save</button>
+                                <button id="stop-live-logs-btn" class="px-3 py-1 text-xs bg-red-900 hover:bg-red-800 rounded transition-colors">Stop</button>
                             </div>
                         </div>
                         <div id="live-logs-output" class="console-panel bg-gray-900 rounded-lg p-3 h-64 overflow-y-auto font-mono text-xs">
@@ -159,44 +185,22 @@
                     </div>
                 </div>
 
-                <!-- Port Reference -->
-                <div class="mt-6 bg-gray-800/50 rounded-lg p-4 border border-gray-700/50">
-                    <h4 class="text-sm font-medium text-gray-400 mb-2">Port Reference (Board ID = XX)</h4>
-                    <div class="flex flex-wrap gap-4 text-sm">
-                        <span><span class="port-badge web">WEB</span> <span class="text-gray-400">80XX</span> - Webserver</span>
-                        <span><span class="port-badge ota">OTA</span> <span class="text-gray-400">82XX</span> - Firmware updates</span>
-                        <span><span class="port-badge api">API</span> <span class="text-gray-400">60XX</span> - ESPHome Native API</span>
-                    </div>
-                </div>
-
-                <!-- Boards Console -->
-                <div class="mt-6 bg-gray-800 rounded-xl p-6 border border-gray-700">
-                    <div class="flex items-center justify-between mb-4">
-                        <h2 class="text-xl font-semibold">Board Operations Log</h2>
-                        <div class="flex items-center space-x-2">
-                            <button id="save-boards-console-btn" class="text-sm text-gray-400 hover:text-white" title="Download log as TXT">
-                                Save
-                            </button>
-                            <button id="clear-boards-console-btn" class="text-sm text-gray-400 hover:text-white">
-                                Clear
-                            </button>
+                <!-- Connection History (collapsible, collapsed by default) -->
+                <div class="mt-6 bg-gray-800 rounded-xl border border-gray-700">
+                    <div class="flex items-center justify-between p-4">
+                        <button id="toggle-status-log" class="flex items-center space-x-2 text-left hover:text-white transition-colors">
+                            <span id="status-log-chevron" class="text-gray-400 transition-transform text-xs" style="transform: rotate(-90deg)">&#9660;</span>
+                            <h2 class="text-xl font-semibold">Connection History</h2>
+                        </button>
+                        <div class="flex items-center space-x-3">
+                            <button id="refresh-status-log-btn" class="text-sm text-gray-400 hover:text-white" title="Refresh">&#x21BB;</button>
+                            <button id="clear-all-status-log-btn" class="text-red-500 hover:text-red-400 text-sm" title="Clear all connection history">&#x1F5D1;</button>
                         </div>
                     </div>
-                    <div id="boards-console-output" class="console-panel bg-gray-900 rounded-lg p-4 h-48 overflow-y-auto font-mono text-sm">
-                        <p class="text-gray-500">Ready...</p>
-                    </div>
-                </div>
-
-                <!-- Connection History (Status Log) -->
-                <div class="mt-6 bg-gray-800 rounded-xl p-6 border border-gray-700">
-                    <div class="flex items-center justify-between mb-4">
-                        <h2 class="text-xl font-semibold">Connection History</h2>
-                        <button id="refresh-status-log-btn" class="text-sm text-gray-400 hover:text-white">
-                            Refresh
-                        </button>
-                    </div>
-                    <div id="status-log-container" class="max-h-64 overflow-y-auto">
-                        <p class="text-gray-500 text-sm">No status changes recorded yet. Run a scan to start tracking.</p>
+                    <div id="status-log-body" class="px-6 pb-6 hidden">
+                        <div id="status-log-container" class="max-h-64 overflow-y-auto">
+                            <p class="text-gray-500 text-sm">No status changes recorded yet. Run a scan to start tracking.</p>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -754,6 +758,6 @@
         </div>
     </div>
 
-    <script src="/static/js/app.js?v=10"></script>
+    <script src="/static/js/app.js?v=12"></script>
 </body>
 </html>

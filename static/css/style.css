@@ -407,6 +407,73 @@ button:disabled {
     border: 1px solid rgba(139, 92, 246, 0.25);
 }
 
+/* Collapsible section chevrons */
+.rotate-\[-90deg\] {
+    transform: rotate(-90deg);
+}
+
+/* ==================== Split Log Panels ==================== */
+
+/* Log panels container — side-by-side when live logs active */
+#log-panels-container {
+    min-height: 0;
+}
+
+/* Panel maximize button */
+.panel-maximize-btn {
+    font-size: 1rem;
+    line-height: 1;
+    padding: 0.25rem 0.375rem;
+    border-radius: 0.25rem;
+    color: #6b7280;
+    transition: color 0.15s, background-color 0.15s;
+    cursor: pointer;
+    background: none;
+    border: none;
+}
+
+.panel-maximize-btn:hover {
+    color: #e5e7eb;
+    background-color: #374151;
+}
+
+/* Status log delete button — always visible, red */
+.status-log-delete-btn {
+    color: #ef4444;
+    font-size: 1rem;
+    font-weight: 700;
+    line-height: 1;
+    padding: 0.125rem 0.375rem;
+    border-radius: 0.25rem;
+    cursor: pointer;
+    background: none;
+    border: none;
+    opacity: 0.7;
+    transition: opacity 0.15s, background-color 0.15s;
+}
+
+.status-log-delete-btn:hover {
+    opacity: 1;
+    background-color: rgba(239, 68, 68, 0.15);
+}
+
+/* Clear-all trash icon button */
+.status-log-clear-all-btn {
+    color: #6b7280;
+    font-size: 1rem;
+    padding: 0.25rem 0.375rem;
+    border-radius: 0.25rem;
+    cursor: pointer;
+    background: none;
+    border: none;
+    transition: color 0.15s, background-color 0.15s;
+}
+
+.status-log-clear-all-btn:hover {
+    color: #ef4444;
+    background-color: rgba(239, 68, 68, 0.1);
+}
+
 /* Responsive adjustments */
 @media (max-width: 768px) {
     .tab-btn {
@@ -417,5 +484,10 @@ button:disabled {
     .project-type-btn {
         padding: 0.5rem;
         font-size: 0.75rem;
+    }
+
+    /* Stack log panels vertically on mobile */
+    #log-panels-container {
+        flex-direction: column;
     }
 }

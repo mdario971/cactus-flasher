@@ -79,3 +79,30 @@ def trim_log(data: dict, max_entries: int = 500) -> None:
     """Keep only the most recent entries."""
     if len(data["logs"]) > max_entries:
         data["logs"] = data["logs"][-max_entries:]
+
+
+def clear_all_logs() -> int:
+    """Clear all status log entries. Returns number of entries removed."""
+    data = _load_status_log()
+    count = len(data["logs"])
+    data["logs"] = []
+    data["last_status"] = {}
+    save_yaml_config(STATUS_LOG_FILE, data)
+    return count
+
+
+def delete_log_entry(timestamp: str, board_name: str) -> bool:
+    """Delete a specific log entry by timestamp and board_name.
+
+    Returns True if entry was found and deleted.
+    """
+    data = _load_status_log()
+    original_len = len(data["logs"])
+    data["logs"] = [
+        e for e in data["logs"]
+        if not (e.get("timestamp") == timestamp and e.get("board_name") == board_name)
+    ]
+    if len(data["logs"]) < original_len:
+        save_yaml_config(STATUS_LOG_FILE, data)
+        return True
+    return False
