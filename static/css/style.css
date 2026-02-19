@@ -390,6 +390,10 @@ button:disabled {
     color: #f59e0b;
 }
 
+.log-live-log {
+    color: #9ca3af;
+}
+
 /* Sensor badge */
 .sensor-badge {
     display: inline-flex;

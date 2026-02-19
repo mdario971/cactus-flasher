@@ -10,6 +10,8 @@ class CactusFlasher {
         this.boards = [];
         this.liveLogSource = null;
         this.liveLogBoardName = null;
+        this.liveLogFilter = 'all';
+        this.liveLogCount = 0;
 
         this.init();
     }
@@ -142,10 +144,31 @@ class CactusFlasher {
             refreshLogBtn.addEventListener('click', () => this.loadStatusLog());
         }
 
-        // Live logs stop button
+        // Live logs controls
         const stopLogsBtn = document.getElementById('stop-live-logs-btn');
         if (stopLogsBtn) {
             stopLogsBtn.addEventListener('click', () => this.stopBoardLogs());
+        }
+        const downloadLogsBtn = document.getElementById('download-live-logs-btn');
+        if (downloadLogsBtn) {
+            downloadLogsBtn.addEventListener('click', () => this.downloadLogs('live-logs-output', `live-logs-${this.liveLogBoardName || 'board'}`));
+        }
+        const liveLogsFilter = document.getElementById('live-logs-filter');
+        if (liveLogsFilter) {
+            liveLogsFilter.addEventListener('change', (e) => {
+                this.liveLogFilter = e.target.value;
+                this.applyLiveLogFilter();
+            });
+        }
+
+        // Console save buttons
+        const saveBoardsBtn = document.getElementById('save-boards-console-btn');
+        if (saveBoardsBtn) {
+            saveBoardsBtn.addEventListener('click', () => this.downloadLogs('boards-console-output', 'boards-log'));
+        }
+        const saveConsoleBtn = document.getElementById('save-console-btn');
+        if (saveConsoleBtn) {
+            saveConsoleBtn.addEventListener('click', () => this.downloadLogs('console-output', 'flash-log'));
         }
     }
 
@@ -395,6 +418,17 @@ class CactusFlasher {
                     </div>`;
             }
 
+            // Device info display (persisted from last scan, shown even when offline)
+            const di = board.device_info || {};
+            let deviceInfoHtml = '';
+            const diParts = [];
+            if (di.esphome_version) diParts.push(`v${di.esphome_version}`);
+            if (di.platform) diParts.push(di.platform);
+            if (di.ip_address) diParts.push(di.ip_address);
+            if (diParts.length > 0) {
+                deviceInfoHtml = `<p class="text-gray-600 text-xs">${diParts.join(' &middot; ')}</p>`;
+            }
+
             // Last seen display (only for offline boards)
             let lastSeenHtml = '';
             if (!board.online && board.last_seen) {
@@ -410,6 +444,12 @@ class CactusFlasher {
                 `WEB: :${board.webserver_port} | OTA: :${board.ota_port} | API: :${board.api_port}`,
             ];
             if (board.mac_address) tooltipLines.push(`MAC: ${board.mac_address}`);
+            if (di.esphome_version) tooltipLines.push(`ESPHome: ${di.esphome_version}`);
+            if (di.platform) tooltipLines.push(`Platform: ${di.platform}`);
+            if (di.board_model) tooltipLines.push(`Board: ${di.board_model}`);
+            if (di.wifi_ssid) tooltipLines.push(`WiFi: ${di.wifi_ssid}`);
+            if (di.ip_address) tooltipLines.push(`IP: ${di.ip_address}`);
+            if (di.compiled) tooltipLines.push(`Compiled: ${di.compiled}`);
             if (board.last_seen) tooltipLines.push(`Last seen: ${new Date(board.last_seen).toLocaleString()}`);
             if (board.sensors && board.sensors.length) tooltipLines.push(`Sensors: ${board.sensors.length}`);
             const tooltipContent = tooltipLines.join('<br>');
@@ -430,6 +470,7 @@ class CactusFlasher {
                     <p>ID: ${idStr} &middot; ${typeStr}</p>
                     ${board.hostname ? `<p class="text-gray-500 truncate" title="${board.hostname}">${board.hostname}</p>` : ''}
                     ${board.mac_address ? `<p class="text-gray-500 font-mono text-xs cursor-pointer" title="Click to copy MAC address" onclick="navigator.clipboard.writeText('${board.mac_address}').then(()=>app.showToast('MAC copied','success'))">${board.mac_address}</p>` : ''}
+                    ${deviceInfoHtml}
                     ${lastSeenHtml}
                     <div class="flex flex-wrap gap-1 mt-1">
                         <div class="tooltip-wrapper">
@@ -604,6 +645,10 @@ class CactusFlasher {
         output.innerHTML = '<p class="text-gray-500">Connecting...</p>';
 
         this.liveLogBoardName = boardName;
+        this.liveLogCount = 0;
+        this.liveLogFilter = 'all';
+        const filterEl = document.getElementById('live-logs-filter');
+        if (filterEl) filterEl.value = 'all';
 
         const url = `/api/boards/${encodeURIComponent(boardName)}/logs`;
         this.liveLogSource = new EventSource(url);
@@ -616,6 +661,10 @@ class CactusFlasher {
         this.liveLogSource.onmessage = (event) => {
             try {
                 const data = JSON.parse(event.data);
+                if (data.error) {
+                    this.logLivePanel(`Error: ${data.error}`, 'error');
+                    return;
+                }
                 const id = data.id || '';
                 const state = data.state !== undefined ? data.state : (data.value || '');
                 // Color code by entity type
@@ -630,7 +679,9 @@ class CactusFlasher {
                 this.logLivePanel(`${id}: ${state}`, level);
             } catch (e) {
                 // Raw text event
-                this.logLivePanel(event.data, 'info');
+                if (event.data.trim()) {
+                    this.logLivePanel(event.data, 'log');
+                }
             }
         };
 
@@ -639,9 +690,17 @@ class CactusFlasher {
                 const data = JSON.parse(event.data);
                 const id = data.id || '?';
                 const state = data.state !== undefined ? data.state : (data.value || '');
-                this.logLivePanel(`${id}: ${state}`, 'sensor');
+                let level = 'sensor';
+                if (id.startsWith('switch-') || id.startsWith('light-') || id.startsWith('fan-')) {
+                    level = 'switch';
+                } else if (id.startsWith('binary_sensor-')) {
+                    level = 'binary';
+                } else if (id.startsWith('text_sensor-')) {
+                    level = 'text';
+                }
+                this.logLivePanel(`${id}: ${state}`, level);
             } catch (e) {
-                this.logLivePanel(event.data, 'info');
+                this.logLivePanel(event.data, 'log');
             }
         });
 
@@ -649,11 +708,16 @@ class CactusFlasher {
             try {
                 const data = JSON.parse(event.data);
                 const msg = data.message || event.data;
-                const level = data.level || 'info';
-                this.logLivePanel(msg, level === 'ERROR' ? 'error' : level === 'WARNING' ? 'warning' : 'info');
+                const lvl = data.level || 'info';
+                this.logLivePanel(msg, lvl === 'ERROR' ? 'error' : lvl === 'WARNING' ? 'warning' : 'log');
             } catch (e) {
-                this.logLivePanel(event.data, 'info');
+                this.logLivePanel(event.data, 'log');
             }
+        });
+
+        this.liveLogSource.addEventListener('ping', (event) => {
+            // ESPHome sends periodic ping events - show as debug
+            this.logLivePanel('ping', 'log');
         });
 
         this.liveLogSource.onerror = () => {
@@ -682,13 +746,66 @@ class CactusFlasher {
         const time = new Date().toLocaleTimeString();
         const line = document.createElement('p');
         line.className = `log-live-${level}`;
+        line.dataset.level = level;
         line.textContent = `[${time}] ${message}`;
+
+        // Apply current filter
+        if (this.liveLogFilter !== 'all' && level !== this.liveLogFilter) {
+            line.style.display = 'none';
+        }
+
         output.appendChild(line);
-        // Keep max 500 lines
-        while (output.children.length > 500) {
+        this.liveLogCount++;
+
+        // Update counter
+        const countEl = document.getElementById('live-logs-count');
+        if (countEl) countEl.textContent = `(${this.liveLogCount} events)`;
+
+        // Keep max 1000 lines
+        while (output.children.length > 1000) {
             output.removeChild(output.firstChild);
         }
         output.scrollTop = output.scrollHeight;
+    }
+
+    applyLiveLogFilter() {
+        const output = document.getElementById('live-logs-output');
+        if (!output) return;
+        for (const line of output.children) {
+            const level = line.dataset.level;
+            if (this.liveLogFilter === 'all' || level === this.liveLogFilter) {
+                line.style.display = '';
+            } else {
+                line.style.display = 'none';
+            }
+        }
+        output.scrollTop = output.scrollHeight;
+    }
+
+    downloadLogs(containerId, filenamePrefix) {
+        const container = document.getElementById(containerId);
+        if (!container) return;
+        const lines = [];
+        for (const child of container.children) {
+            if (child.style.display !== 'none') {
+                lines.push(child.textContent);
+            }
+        }
+        if (!lines.length) {
+            this.showToast('No logs to save', 'error');
+            return;
+        }
+        const text = lines.join('\n');
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+        const filename = `${filenamePrefix}-${timestamp}.txt`;
+        const blob = new Blob([text], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(url);
+        this.showToast(`Saved ${lines.length} lines to ${filename}`, 'success');
     }
 
     showAddBoardModal() {

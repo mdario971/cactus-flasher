@@ -128,17 +128,25 @@ async def scan_single_board(name: str, board: dict) -> Dict[str, Any]:
             web_username=web_user, web_password=web_pass,
         )
 
-    # Try to discover sensors if webserver is online
+    # Try to discover sensors and device info if webserver is online
     sensors = board.get("sensors", [])
+    device_info = board.get("device_info", {})
     if web_online:
         try:
-            from .sensors import discover_sensors
+            from .sensors import discover_sensors, get_device_info
             discovered = await discover_sensors(
                 host, ports["webserver"],
                 web_username=web_user, web_password=web_pass,
             )
             if discovered:
                 sensors = discovered
+            # Extract device info (version, platform, etc.)
+            new_info = await get_device_info(
+                host, ports["webserver"],
+                web_username=web_user, web_password=web_pass,
+            )
+            if new_info:
+                device_info = new_info
         except Exception:
             pass
 
@@ -155,6 +163,7 @@ async def scan_single_board(name: str, board: dict) -> Dict[str, Any]:
         "api_info": api_info,
         "mac_address": mac_address,
         "sensors": sensors,
+        "device_info": device_info,
     }
 
 

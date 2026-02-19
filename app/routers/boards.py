@@ -52,6 +52,7 @@ async def list_boards():
                 mac_address=board.get("mac_address"),
                 last_seen=board.get("last_seen"),
                 sensors=sensors,
+                device_info=board.get("device_info"),
             )
         )
 
@@ -89,6 +90,11 @@ async def scan_boards():
         # Update sensors if discovered
         if result.get("sensors"):
             boards_data[name]["sensors"] = result["sensors"]
+            changed = True
+
+        # Update device info if discovered
+        if result.get("device_info"):
+            boards_data[name]["device_info"] = result["device_info"]
             changed = True
 
     if changed:
@@ -252,6 +258,7 @@ async def get_board(board_name: str):
         mac_address=board.get("mac_address"),
         last_seen=board.get("last_seen"),
         sensors=sensors,
+        device_info=board.get("device_info"),
     )
 
 

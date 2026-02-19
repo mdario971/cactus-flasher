@@ -201,6 +201,85 @@ async def _try_events_endpoint(
     return sensors
 
 
+async def get_device_info(
+    host: str, webserver_port: int, timeout: float = 5.0,
+    web_username: str = None, web_password: str = None,
+) -> Dict[str, Any]:
+    """Extract device info from ESPHome web_server page.
+
+    Parses the HTML for device name, ESPHome version, compilation time,
+    platform, board model, WiFi SSID/IP, and connected status.
+    Returns dict with available info fields.
+    """
+    info = {}
+    auth = None
+    if web_username and web_password:
+        auth = aiohttp.BasicAuth(web_username, web_password)
+
+    try:
+        url = f"http://{host}:{webserver_port}/"
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                url, timeout=aiohttp.ClientTimeout(total=timeout),
+                auth=auth,
+            ) as response:
+                if response.status != 200:
+                    return info
+                html = await response.text()
+    except Exception:
+        return info
+
+    # ESPHome web_server pages contain device metadata in various formats
+
+    # Device name from <title> or header
+    title_match = re.search(r'<title>([^<]+)</title>', html, re.IGNORECASE)
+    if title_match:
+        info["device_name"] = title_match.group(1).strip()
+
+    # Version patterns: "ESPHome version 2024.x.x" or "Version: 2024.x.x"
+    ver_match = re.search(r'(?:ESPHome\s+)?[Vv]ersion[:\s]*(\d+\.\d+\.\d+)', html)
+    if ver_match:
+        info["esphome_version"] = ver_match.group(1)
+
+    # Compilation time
+    comp_match = re.search(r'[Cc]ompil(?:ation|ed)[:\s]*([^<"\n]+)', html)
+    if comp_match:
+        info["compiled"] = comp_match.group(1).strip()
+
+    # Platform / board model
+    plat_match = re.search(r'[Pp]latform[:\s]*([^<"\n]+)', html)
+    if plat_match:
+        info["platform"] = plat_match.group(1).strip()
+
+    board_match = re.search(r'[Bb]oard[:\s]*([^<"\n]+)', html)
+    if board_match:
+        info["board_model"] = board_match.group(1).strip()
+
+    # WiFi SSID
+    ssid_match = re.search(r'SSID[:\s]*([^<"\n]+)', html)
+    if ssid_match:
+        info["wifi_ssid"] = ssid_match.group(1).strip()
+
+    # IP address patterns
+    ip_match = re.search(r'IP[:\s]*(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})', html)
+    if ip_match:
+        info["ip_address"] = ip_match.group(1)
+
+    # Also try JSON-like embedded data
+    # ESPHome v3 web_server may embed device info as JSON
+    for key, pattern in [
+        ("device_name", r'"name"\s*:\s*"([^"]+)"'),
+        ("esphome_version", r'"version"\s*:\s*"([^"]+)"'),
+        ("platform", r'"platform"\s*:\s*"([^"]+)"'),
+    ]:
+        if key not in info:
+            m = re.search(pattern, html)
+            if m:
+                info[key] = m.group(1)
+
+    return info
+
+
 def _parse_state_unit(state_text: str) -> tuple:
     """Parse a state string like '22.5 C' into ('22.5', 'C').
 

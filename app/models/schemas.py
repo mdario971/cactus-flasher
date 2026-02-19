@@ -98,6 +98,7 @@ class BoardStatus(BaseModel):
     mac_address: Optional[str] = None
     last_seen: Optional[str] = None
     sensors: Optional[List[SensorInfo]] = None
+    device_info: Optional[dict] = None
 
 
 class BoardList(BaseModel):
