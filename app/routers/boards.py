@@ -282,6 +282,9 @@ async def get_board(board_name: str):
         last_seen=board.get("last_seen"),
         sensors=sensors,
         device_info=board.get("device_info"),
+        api_key=board.get("api_key"),
+        web_username=board.get("web_username"),
+        web_password=board.get("web_password"),
     )
 
 

@@ -104,6 +104,14 @@ class CactusFlasher {
         document.getElementById('close-add-board-modal').addEventListener('click', () => this.hideAddBoardModal());
         document.getElementById('cancel-add-board').addEventListener('click', () => this.hideAddBoardModal());
 
+        // Edit board modal
+        document.getElementById('close-edit-board-modal').addEventListener('click', () => this.hideEditBoardModal());
+        document.getElementById('cancel-edit-board').addEventListener('click', () => this.hideEditBoardModal());
+        document.getElementById('edit-board-form').addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.saveEditBoard();
+        });
+
         // Add board forms
         document.getElementById('add-board-form').addEventListener('submit', (e) => {
             e.preventDefault();
@@ -524,6 +532,11 @@ class CactusFlasher {
                             class="flex-1 py-1 text-sm bg-gray-700 hover:bg-gray-600 rounded transition-colors">
                         Ping
                     </button>
+                    <button onclick="app.showEditBoardModal('${board.name}')"
+                            class="px-3 py-1 text-sm bg-gray-700 hover:bg-gray-600 rounded transition-colors"
+                            title="Edit board settings">
+                        &#9998;
+                    </button>
                     <button onclick="app.deleteBoard('${board.name}')"
                             class="px-3 py-1 text-sm bg-red-900 hover:bg-red-800 rounded transition-colors">
                         Delete
@@ -879,6 +892,56 @@ class CactusFlasher {
     hideAddBoardModal() {
         document.getElementById('add-board-modal').classList.add('hidden');
         document.getElementById('modal-add-board-form').reset();
+    }
+
+    async showEditBoardModal(boardName) {
+        try {
+            const board = await this.api(`/api/boards/${encodeURIComponent(boardName)}`);
+            document.getElementById('edit-board-original-name').value = boardName;
+            document.getElementById('edit-board-title').textContent = boardName;
+            document.getElementById('edit-board-id').value = board.id || '';
+            document.getElementById('edit-board-type').value = board.type || 'esp32';
+            document.getElementById('edit-board-host').value = board.host || '';
+            document.getElementById('edit-board-hostname').value = board.hostname || '';
+            document.getElementById('edit-board-mac').value = board.mac_address || '';
+            document.getElementById('edit-board-api-key').value = board.api_key || '';
+            document.getElementById('edit-board-web-username').value = board.web_username || '';
+            document.getElementById('edit-board-web-password').value = board.web_password || '';
+            document.getElementById('edit-board-modal').classList.remove('hidden');
+        } catch (error) {
+            this.showToast('Failed to load board data: ' + error.message, 'error');
+        }
+    }
+
+    hideEditBoardModal() {
+        document.getElementById('edit-board-modal').classList.add('hidden');
+        document.getElementById('edit-board-form').reset();
+    }
+
+    async saveEditBoard() {
+        const originalName = document.getElementById('edit-board-original-name').value;
+        const data = {
+            type: document.getElementById('edit-board-type').value,
+            host: document.getElementById('edit-board-host').value || null,
+            hostname: document.getElementById('edit-board-hostname').value || null,
+            mac_address: document.getElementById('edit-board-mac').value || null,
+            api_key: document.getElementById('edit-board-api-key').value || null,
+            web_username: document.getElementById('edit-board-web-username').value || null,
+            web_password: document.getElementById('edit-board-web-password').value || null,
+        };
+
+        try {
+            await this.api(`/api/boards/${encodeURIComponent(originalName)}`, {
+                method: 'PUT',
+                body: JSON.stringify(data),
+            });
+            this.showToast(`Board "${originalName}" updated`, 'success');
+            this.logBoardsConsole(`Board "${originalName}" updated`, 'success');
+            this.hideEditBoardModal();
+            await this.loadBoards();
+        } catch (error) {
+            this.showToast('Failed to update board: ' + error.message, 'error');
+        }
     }
 
     async addBoard(formId) {

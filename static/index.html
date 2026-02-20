@@ -758,6 +758,75 @@
         </div>
     </div>
 
-    <script src="/static/js/app.js?v=12"></script>
+    <!-- Edit Board Modal -->
+    <div id="edit-board-modal" class="fixed inset-0 bg-black/80 flex items-center justify-center z-50 hidden">
+        <div class="bg-gray-800 rounded-xl p-6 w-full max-w-md border border-gray-700">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-lg font-semibold">Edit Board: <span id="edit-board-title" class="text-cactus-400"></span></h3>
+                <button id="close-edit-board-modal" class="text-gray-400 hover:text-white text-2xl">&times;</button>
+            </div>
+            <input type="hidden" id="edit-board-original-name">
+            <form id="edit-board-form" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-1">Board ID (01-99)</label>
+                    <input type="number" id="edit-board-id" min="1" max="99"
+                           class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg" required>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-1">Board Type</label>
+                    <select id="edit-board-type" class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg">
+                        <option value="esp32">ESP32</option>
+                        <option value="esp32s2">ESP32-S2</option>
+                        <option value="esp32s3">ESP32-S3</option>
+                        <option value="esp32c3">ESP32-C3</option>
+                        <option value="esp8266">ESP8266</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-1">Custom Host (optional)</label>
+                    <input type="text" id="edit-board-host" placeholder="Leave empty to use DDNS"
+                           class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-1">Hostname (optional)</label>
+                    <input type="text" id="edit-board-hostname" placeholder="Auto-generated if empty"
+                           class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-1">MAC Address (optional)</label>
+                    <input type="text" id="edit-board-mac" placeholder="AA:BB:CC:DD:EE:FF"
+                           class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg"
+                           pattern="^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-1">API Encryption Key (optional)</label>
+                    <input type="password" id="edit-board-api-key" placeholder="ESPHome native API key"
+                           class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg">
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-1">Web Username</label>
+                        <input type="text" id="edit-board-web-username" placeholder="web_server auth"
+                               class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-1">Web Password</label>
+                        <input type="password" id="edit-board-web-password" placeholder="web_server auth"
+                               class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg">
+                    </div>
+                </div>
+                <div class="flex space-x-3">
+                    <button type="button" id="cancel-edit-board" class="flex-1 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors">
+                        Cancel
+                    </button>
+                    <button type="submit" class="flex-1 py-2 bg-cactus-600 hover:bg-cactus-700 rounded-lg transition-colors">
+                        Save Changes
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script src="/static/js/app.js?v=13"></script>
 </body>
 </html>

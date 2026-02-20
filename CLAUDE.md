@@ -206,4 +206,4 @@ docker compose up --build
 - Force password change on first login with default credentials
 - Sensor history tracking (time-series data for charts)
 - Board grouping / tagging for organization
-- Edit board modal (currently must delete + re-add to change web credentials)
+- ~~Edit board modal~~ — DONE: pencil (✎) button on each board card opens edit modal with all fields pre-filled

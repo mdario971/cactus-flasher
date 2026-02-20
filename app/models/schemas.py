@@ -99,6 +99,9 @@ class BoardStatus(BaseModel):
     last_seen: Optional[str] = None
     sensors: Optional[List[SensorInfo]] = None
     device_info: Optional[dict] = None
+    api_key: Optional[str] = None
+    web_username: Optional[str] = None
+    web_password: Optional[str] = None
 
 
 class BoardList(BaseModel):
